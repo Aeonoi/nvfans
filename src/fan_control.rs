@@ -1,4 +1,5 @@
 use glob::glob;
+use std::fs::read_to_string;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{fs::File, io::Read};
@@ -12,6 +13,21 @@ const fn millic_to_c(temp: i64) -> i64 {
     temp / 1000
 }
 
+fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
+    match value {
+        "0" => FanSpeed::Level0,
+        "1" => FanSpeed::Level1,
+        "2" => FanSpeed::Level2,
+        "3" => FanSpeed::Level3,
+        "4" => FanSpeed::Level4,
+        "5" => FanSpeed::Level5,
+        "6" => FanSpeed::Level6,
+        "7" => FanSpeed::Level7,
+        "full-speed" => FanSpeed::FullSpeed,
+        "auto" => FanSpeed::Auto,
+        _ => FanSpeed::Auto,
+    }
+}
 fn convert_fan_speed(fan_speed: FanSpeed) -> String {
     match fan_speed {
         FanSpeed::Level0 => String::from("level 0"),
@@ -27,9 +43,9 @@ fn convert_fan_speed(fan_speed: FanSpeed) -> String {
     }
 }
 
-#[derive(PartialEq, Copy, Clone)]
-struct Temperature<'a> {
-    name: &'a str,
+#[derive(PartialEq, Clone)]
+struct Temperature {
+    name: String,
     low: i64,
     high: i64,
     speed: FanSpeed,
@@ -63,33 +79,33 @@ pub enum SetFanStatus {
     FanLevelError,
 }
 
-pub struct FanControl<'a> {
-    current_rule: Temperature<'a>,
-    temperature_configs: Vec<Temperature<'a>>,
+pub struct FanControl {
+    current_rule: Temperature,
+    temperature_configs: Vec<Temperature>,
 }
 
-fn read_config_file<'a>() -> Vec<Temperature<'a>> {
+fn read_config_file() -> Vec<Temperature> {
     let default_config: Vec<Temperature> = [
         Temperature {
-            name: "level 7",
+            name: "level 7".to_string(),
             low: 81,
             high: 100,
             speed: FanSpeed::Level7,
         },
         Temperature {
-            name: "level 6",
+            name: "level 6".to_string(),
             low: 76,
             high: 80,
             speed: FanSpeed::Level6,
         },
         Temperature {
-            name: "level 5",
-            low: 70,
+            name: "level 5".to_string(),
+            low: 71,
             high: 75,
             speed: FanSpeed::Level5,
         },
         Temperature {
-            name: "level auto",
+            name: "level auto".to_string(),
             low: 0,
             high: 70,
             speed: FanSpeed::Auto,
@@ -98,23 +114,57 @@ fn read_config_file<'a>() -> Vec<Temperature<'a>> {
     .to_vec();
 
     let exists = Path::new(CONFIG_FILE).exists();
+
+    println!("{}", CONFIG_FILE);
     if exists {
-        // TODO: Read config file
-        todo!()
+        let mut config: Vec<Temperature> = vec![];
+        let lines = read_to_string(CONFIG_FILE);
+        if lines.is_ok() {
+            for (i, line) in lines.unwrap().lines().enumerate() {
+                let data: Vec<&str> = line.split(",").collect();
+                if data.len() == 3 {
+                    let low = data[0].parse::<i64>();
+                    if low.is_err() {
+                        eprintln!("Error with reading config values. Using default config");
+                        return default_config;
+                    }
+                    let high = data[1].parse::<i64>();
+                    if high.is_err() {
+                        eprintln!("Error with reading config values. Using default config");
+                        return default_config;
+                    }
+                    let speed = data[2];
+                    println!(
+                        "Low {}, High: {}, speed: {speed}",
+                        low.clone().unwrap(),
+                        high.clone().unwrap()
+                    );
+                    config.push(Temperature {
+                        name: format!("level {}", i),
+                        low: low.unwrap(),
+                        high: high.unwrap(),
+                        speed: convert_number_to_fan_speed(speed),
+                    });
+                }
+            }
+        } else {
+            eprintln!("Error opening file, using default config");
+            return default_config;
+        }
+        return config;
     } else {
-        println!("DEFAULT CONFIG");
         return default_config;
     }
 }
 
-impl FanControl<'_> {
-    pub fn new() -> FanControl<'static> {
+impl FanControl {
+    pub fn new() -> FanControl {
         FanControl {
             current_rule: Temperature {
-                name: "level 0",
+                name: "level 0".to_string(),
                 low: 0,
                 high: 100,
-                speed: FanSpeed::Level0,
+                speed: FanSpeed::Auto,
             },
             temperature_configs: read_config_file(),
         }
@@ -207,7 +257,7 @@ impl FanControl<'_> {
             }
             if rule.high >= max_temp && rule.low <= max_temp {
                 if self.current_rule != rule {
-                    self.current_rule = rule;
+                    self.current_rule = rule.clone();
                     let value = convert_fan_speed(rule.speed);
                     let status = self.write_to_fan(&value);
                     if status.is_err() {

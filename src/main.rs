@@ -8,5 +8,4 @@ fn main() {
         fan_control.full_speed_supported()
     );
     println!("Max speed: {}", fan_control.get_max_temp());
-    fan_control.set_fan_level();
 }
