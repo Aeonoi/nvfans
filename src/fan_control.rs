@@ -1,13 +1,19 @@
+use crate::suspend_detector::SuspendDetector;
 use glob::glob;
 use std::fs::read_to_string;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::exit;
+use std::time::Instant;
 use std::{fs::File, io::Read};
 
 const TEMP_FILES_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input"; // Gets the temperatures
 const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // controls the fan speed
 const TEMP_INVALID: i64 = i64::min_value();
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
+
+pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
+pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
 
 const fn millic_to_c(temp: i64) -> i64 {
     temp / 1000
@@ -30,16 +36,16 @@ fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
 }
 fn convert_fan_speed(fan_speed: FanSpeed) -> String {
     match fan_speed {
-        FanSpeed::Level0 => String::from("level 0"),
-        FanSpeed::Level1 => String::from("level 1"),
-        FanSpeed::Level2 => String::from("level 2"),
-        FanSpeed::Level3 => String::from("level 3"),
-        FanSpeed::Level4 => String::from("level 4"),
-        FanSpeed::Level5 => String::from("level 5"),
-        FanSpeed::Level6 => String::from("level 6"),
-        FanSpeed::Level7 => String::from("level 7"),
-        FanSpeed::FullSpeed => String::from("level full-speed"),
-        FanSpeed::Auto => String::from("level auto"),
+        FanSpeed::Level0 => String::from("0"),
+        FanSpeed::Level1 => String::from("1"),
+        FanSpeed::Level2 => String::from("2"),
+        FanSpeed::Level3 => String::from("3"),
+        FanSpeed::Level4 => String::from("4"),
+        FanSpeed::Level5 => String::from("5"),
+        FanSpeed::Level6 => String::from("6"),
+        FanSpeed::Level7 => String::from("7"),
+        FanSpeed::FullSpeed => String::from("full-speed"),
+        FanSpeed::Auto => String::from("auto"),
     }
 }
 
@@ -64,14 +70,14 @@ enum FanSpeed {
     FullSpeed,
     Auto,
 }
-enum FanLevel {
-    FanMax,
-    FanMed,
-    FanLow,
-    FanOff,
-    FanInvalid,
+
+#[derive(PartialEq)]
+pub enum ResumeState {
+    ResumeNotDetected,
+    ResumeDetected,
 }
 
+#[derive(PartialEq)]
 pub enum SetFanStatus {
     FanLevelNotSet,
     FanLevelSet,
@@ -79,9 +85,24 @@ pub enum SetFanStatus {
     FanLevelError,
 }
 
-pub struct FanControl {
-    current_rule: Temperature,
-    temperature_configs: Vec<Temperature>,
+pub fn full_speed_supported() -> bool {
+    let f = File::open(FAN_CONTROL_FILE);
+    if f.is_err() {
+        return false;
+    }
+    let mut data = vec![];
+
+    if f.is_ok() {
+        let _ = f.unwrap().read_to_end(&mut data);
+    }
+
+    let content = String::from_utf8_lossy(&data);
+    let mut found = false;
+
+    if content.find("full-speed").is_some() {
+        found = true;
+    }
+    found
 }
 
 fn read_config_file() -> Vec<Temperature> {
@@ -133,9 +154,17 @@ fn read_config_file() -> Vec<Temperature> {
                         eprintln!("Error with reading config values. Using default config");
                         return default_config;
                     }
-                    let speed = data[2];
+                    let mut speed = data[2];
+                    if speed == "full-speed" {
+                        if !full_speed_supported() {
+                            eprintln!(
+                                "Full-speed is not supported on your laptop, will use level 7 as the maximum."
+                            );
+                            speed = "7";
+                        }
+                    }
                     println!(
-                        "Low {}, High: {}, speed: {speed}",
+                        "[CFG] At ranges {} - {} fan is set to level {speed}",
                         low.clone().unwrap(),
                         high.clone().unwrap()
                     );
@@ -157,6 +186,17 @@ fn read_config_file() -> Vec<Temperature> {
     }
 }
 
+pub struct FanControl {
+    current_rule: Temperature,
+    temperature_configs: Vec<Temperature>,
+    run: bool,
+    first_tick: bool,
+    suspend_detector: SuspendDetector,
+    last_watchdog_ping: Instant,
+    pending_sleep: bool,
+    pending_resume: bool,
+}
+
 impl FanControl {
     pub fn new() -> FanControl {
         FanControl {
@@ -167,27 +207,44 @@ impl FanControl {
                 speed: FanSpeed::Auto,
             },
             temperature_configs: read_config_file(),
+            run: true,
+            first_tick: true,
+            suspend_detector: SuspendDetector::new(),
+            last_watchdog_ping: Instant::now(),
+            pending_sleep: false,
+            pending_resume: false,
         }
     }
 
-    pub fn full_speed_supported(&mut self) -> bool {
-        let f = File::open(FAN_CONTROL_FILE);
-        if f.is_err() {
-            return false;
-        }
-        let mut data = vec![];
+    pub fn get_pending_sleep_state(&mut self) -> bool {
+        self.pending_sleep
+    }
 
-        if f.is_ok() {
-            let _ = f.unwrap().read_to_end(&mut data);
-        }
+    pub fn get_pending_resume_state(&mut self) -> bool {
+        self.pending_resume
+    }
 
-        let content = String::from_utf8_lossy(&data);
-        let mut found = false;
+    pub fn set_pending_sleep_state(&mut self, new_state: bool) {
+        self.pending_sleep = new_state
+    }
 
-        if content.find("full-speed").is_some() {
-            found = true;
+    pub fn set_pending_resume_state(&mut self, new_state: bool) {
+        self.pending_resume = new_state
+    }
+
+    pub fn get_run_state(&mut self) -> bool {
+        self.run
+    }
+
+    pub fn unset_first_tick(&mut self) {
+        self.first_tick = false
+    }
+
+    fn exit_if_first_tick(&mut self) {
+        if self.first_tick {
+            eprintln!("Quitting due to failure during first run\n");
+            exit(1); // FIX: may not be thread safe
         }
-        found
     }
 
     pub fn read_temp_file(&mut self, filename: PathBuf) -> i64 {
@@ -233,7 +290,8 @@ impl FanControl {
         }
 
         if max_temp == TEMP_INVALID {
-            // Err("Couldn't find any valid temperature\n");
+            eprintln!("Couldn't find any valid temperature\n");
+            self.exit_if_first_tick();
             return TEMP_INVALID;
         }
 
@@ -244,7 +302,7 @@ impl FanControl {
         let max_temp = self.get_max_temp();
 
         if max_temp == TEMP_INVALID {
-            let status = self.write_to_fan("full-speed");
+            let status = self.write_to_fan("level", "full-speed");
             if status.is_err() {
                 return SetFanStatus::FanLevelError;
             }
@@ -252,22 +310,18 @@ impl FanControl {
         }
 
         for rule in self.temperature_configs.clone() {
-            if self.current_rule == rule {
-                return SetFanStatus::FanLevelSet;
-            }
             if rule.high >= max_temp && rule.low <= max_temp {
                 if self.current_rule != rule {
                     self.current_rule = rule.clone();
                     let value = convert_fan_speed(rule.speed);
-                    let status = self.write_to_fan(&value);
+                    let status = self.write_to_fan("level", &value);
                     if status.is_err() {
                         return SetFanStatus::FanLevelError;
                     }
-                    println!(
-                        "[FAN] Temperature now {}C, fan set to {}\n",
-                        max_temp, value
-                    );
+                    println!("[FAN] Temperature now {}C, fan set to {}", max_temp, value);
                     return SetFanStatus::FanLevelSet;
+                } else {
+                    return SetFanStatus::FanLevelNotSet;
                 }
             }
         }
@@ -275,7 +329,7 @@ impl FanControl {
         return SetFanStatus::FanLevelInvalid;
     }
 
-    pub fn write_to_fan(&mut self, value: &str) -> std::io::Result<()> {
+    pub fn write_to_fan(&mut self, command: &str, value: &str) -> std::io::Result<()> {
         let exists = Path::new(FAN_CONTROL_FILE).exists();
         if exists {
             let f = File::options()
@@ -285,27 +339,72 @@ impl FanControl {
                 .create(false)
                 .open(FAN_CONTROL_FILE);
             if f.is_ok() {
-                let bytes_written = f.unwrap().write(value.as_bytes());
+                let string_to_write = format!("{} {}", command, value);
+                let bytes_written = f.unwrap().write(string_to_write.as_bytes());
                 println!("Wrote to {FAN_CONTROL_FILE}");
                 if bytes_written.is_err() {
+                    self.exit_if_first_tick();
                     panic!(
                         "Error writing to {}, did you enable fan_control=1?",
                         FAN_CONTROL_FILE
                     );
                 } else {
+                    self.last_watchdog_ping = Instant::now();
                     Ok(())
                 }
             } else {
+                self.exit_if_first_tick();
                 panic!(
                     "Error opening {}, do you have sudo access?",
                     FAN_CONTROL_FILE
                 );
             }
         } else {
+            self.exit_if_first_tick();
             panic!(
                 "{} does not exist. Is thinkpad_acpi loaded properly?",
                 FAN_CONTROL_FILE
             );
         }
+    }
+
+    //                      WATCHDOG STUFF              //
+
+    pub fn write_watchdog_timeout(&mut self, timeout: i64) {
+        assert!(timeout >= 0, "Timeout is smaller than 0");
+        assert!(
+            timeout < DEFAULT_WATCHDOG_SECS,
+            "Timeout is greater than 120"
+        );
+        let binding = timeout.to_string();
+        let timeout_s = binding.as_str();
+        let status = self.write_to_fan("watchdog", timeout_s);
+        if status.is_err() {
+            self.exit_if_first_tick();
+        }
+    }
+
+    pub fn maybe_ping_watchdog(&mut self) {
+        if self.suspend_detector.check() == ResumeState::ResumeDetected {
+            // On resume, some models need a manual fan write again, or they will
+            // revert to "auto".
+            println!("Clock jump detected, possible resume. Rewriting fan level\n");
+            let status = self.write_to_fan("level", &convert_fan_speed(self.current_rule.speed));
+            if status.is_err() {
+                self.exit_if_first_tick();
+            }
+        }
+
+        if self.last_watchdog_ping.elapsed().as_secs()
+            < (DEFAULT_WATCHDOG_SECS - WATCHDOG_GRACE_PERIOD_SECS)
+                .try_into()
+                .unwrap()
+        {
+            return;
+        }
+
+        // Transitioning from level 0 -> level 0 can cause a brief fan spinup on
+        // some models, so don't reset the timer by write_fan_level().
+        self.write_watchdog_timeout(DEFAULT_WATCHDOG_SECS);
     }
 }
