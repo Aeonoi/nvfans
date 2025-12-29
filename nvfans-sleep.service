@@ -1,0 +1,12 @@
+[Unit]
+Description=Notify nvfans of sleep
+Before=sleep.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pkill -x -SIGUSR1 nvfans
+# Executing the signal handler races with sleep, so delay a bit
+ExecStart=sleep 1
+
+[Install]
+WantedBy=sleep.target

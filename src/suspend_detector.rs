@@ -2,6 +2,7 @@ use crate::fan_control::ResumeState;
 use std::time::{Duration, Instant, SystemTime};
 const THRESHOLD_NS: u64 = 200000000; // 0.2 seconds
 
+#[derive(Clone)]
 pub struct SuspendDetector {
     mono_prev: Instant,
     wall_prev: SystemTime,

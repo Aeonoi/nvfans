@@ -1,0 +1,14 @@
+[Unit]
+Description=Notify nvfans after waking up from suspend
+After=sysinit.target
+After=suspend.target
+After=suspend-then-hibernate.target
+After=hybrid-sleep.target
+After=hibernate.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pkill -x -USR2 nvfans
+
+[Install]
+WantedBy=sleep.target

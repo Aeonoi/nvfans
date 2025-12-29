@@ -135,6 +135,7 @@ fn read_config_file() -> Vec<Temperature> {
     .to_vec();
 
     let exists = Path::new(CONFIG_FILE).exists();
+    let full_speed_supported = full_speed_supported();
 
     println!("{}", CONFIG_FILE);
     if exists {
@@ -156,7 +157,7 @@ fn read_config_file() -> Vec<Temperature> {
                     }
                     let mut speed = data[2];
                     if speed == "full-speed" {
-                        if !full_speed_supported() {
+                        if !full_speed_supported {
                             eprintln!(
                                 "Full-speed is not supported on your laptop, will use level 7 as the maximum."
                             );
@@ -186,6 +187,7 @@ fn read_config_file() -> Vec<Temperature> {
     }
 }
 
+#[derive(Clone)]
 pub struct FanControl {
     current_rule: Temperature,
     temperature_configs: Vec<Temperature>,
@@ -234,6 +236,13 @@ impl FanControl {
 
     pub fn get_run_state(&mut self) -> bool {
         self.run
+    }
+
+    pub fn reset(&mut self) {
+        println!("[FAN] Quit requested, reenabling thinkpad_acpi fan control");
+        if self.write_to_fan("level", "auto").is_ok() {
+            self.write_watchdog_timeout(0);
+        }
     }
 
     pub fn unset_first_tick(&mut self) {
@@ -341,7 +350,6 @@ impl FanControl {
             if f.is_ok() {
                 let string_to_write = format!("{} {}", command, value);
                 let bytes_written = f.unwrap().write(string_to_write.as_bytes());
-                println!("Wrote to {FAN_CONTROL_FILE}");
                 if bytes_written.is_err() {
                     self.exit_if_first_tick();
                     panic!(
@@ -373,7 +381,7 @@ impl FanControl {
     pub fn write_watchdog_timeout(&mut self, timeout: i64) {
         assert!(timeout >= 0, "Timeout is smaller than 0");
         assert!(
-            timeout < DEFAULT_WATCHDOG_SECS,
+            timeout <= DEFAULT_WATCHDOG_SECS,
             "Timeout is greater than 120"
         );
         let binding = timeout.to_string();

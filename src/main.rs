@@ -1,23 +1,72 @@
 mod fan_control;
 mod suspend_detector;
-use std::{env, thread::sleep, time::Duration};
+use signal_hook::{
+    consts::{SIGINT, SIGUSR1, SIGUSR2},
+    iterator::Signals,
+};
+use std::{
+    env,
+    process::exit,
+    sync::mpsc::channel,
+    thread::{self, sleep},
+    time::Duration,
+};
 
 use crate::fan_control::{FanControl, SetFanStatus};
 
-fn main() {
+#[derive(Debug)]
+enum SignalState {
+    Interrupt,
+    Sleep,
+    Resume,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = env::args();
 
     if args.len() != 1 {
         println!("zcfan: Zero-configuration ThinkPad fan daemon.\n\n");
         println!("  [any argument]     Show this help\n\n");
         println!("See the zcfan(1) man page for details.\n");
-        return;
+        return Ok(());
     }
 
     let mut fan_control = FanControl::new();
 
+    let mut signals = Signals::new([SIGINT, SIGUSR1, SIGUSR2])?;
+    let (sender, receiver) = channel();
+
+    thread::spawn(move || {
+        for sig in signals.forever() {
+            if sig == SIGINT {
+                sender.send(SignalState::Interrupt).unwrap();
+            }
+            if sig == SIGUSR1 {
+                sender.send(SignalState::Sleep).unwrap();
+            }
+            if sig == SIGUSR2 {
+                sender.send(SignalState::Resume).unwrap();
+            }
+        }
+    });
+
     let mut fan_control_enabled = true;
     while fan_control.get_run_state() {
+        let response = receiver.try_recv();
+        if response.is_ok() {
+            match response.unwrap() {
+                SignalState::Sleep => {
+                    fan_control.set_pending_sleep_state(true);
+                }
+                SignalState::Resume => {
+                    fan_control.set_pending_resume_state(true);
+                }
+                SignalState::Interrupt => {
+                    fan_control.reset();
+                    exit(0);
+                }
+            }
+        }
         if fan_control_enabled {
             let set = fan_control.set_fan_level();
             if set != SetFanStatus::FanLevelNotSet {
@@ -30,24 +79,23 @@ fn main() {
         }
         if fan_control.get_pending_sleep_state() {
             fan_control.set_pending_sleep_state(false);
-            println!("Fan control disabled for sleep");
+            println!("[FAN] Fan control disabled for sleep");
 
-            if fan_control.write_to_fan("level", "auto").is_ok() {
+            // Turn off the fan when the system goes to sleep
+            if fan_control.write_to_fan("level", "0").is_ok() {
                 fan_control.write_watchdog_timeout(0);
             }
             fan_control_enabled = false;
         }
         if fan_control.get_pending_resume_state() {
             fan_control.set_pending_resume_state(false);
-            println!("Fan control enabled for resume");
+            println!("[FAN] Fan control enabled for resume");
             fan_control_enabled = true;
             // expect(current_rule);
             let _ = fan_control.write_to_fan("level", "auto");
             fan_control.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
         }
     }
-    println!("[FAN] Quit requested, reenabling thinkpad_acpi fan control");
-    if fan_control.write_to_fan("level", "auto").is_ok() {
-        fan_control.write_watchdog_timeout(0);
-    }
+    fan_control.reset();
+    Ok(())
 }
