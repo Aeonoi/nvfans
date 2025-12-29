@@ -2,7 +2,7 @@ mod fan_control;
 mod suspend_detector;
 use std::{env, thread::sleep, time::Duration};
 
-use crate::fan_control::{FanControl, SetFanStatus, full_speed_supported};
+use crate::fan_control::{FanControl, SetFanStatus};
 
 fn main() {
     let args = env::args();

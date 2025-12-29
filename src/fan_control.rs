@@ -85,7 +85,7 @@ pub enum SetFanStatus {
     FanLevelError,
 }
 
-pub fn full_speed_supported() -> bool {
+fn full_speed_supported() -> bool {
     let f = File::open(FAN_CONTROL_FILE);
     if f.is_err() {
         return false;
