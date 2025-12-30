@@ -338,6 +338,14 @@ impl FanControl {
         return SetFanStatus::FanLevelInvalid;
     }
 
+    pub fn set_fan_to_previous(&mut self) {
+        let status =
+            self.write_to_fan("level", convert_fan_speed(self.current_rule.speed).as_str());
+        if status.is_err() {
+            panic!("Error setting back to previous fan speed");
+        }
+    }
+
     pub fn write_to_fan(&mut self, command: &str, value: &str) -> std::io::Result<()> {
         let exists = Path::new(FAN_CONTROL_FILE).exists();
         if exists {

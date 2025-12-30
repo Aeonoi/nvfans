@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             fan_control.set_pending_resume_state(false);
             println!("[FAN] Fan control enabled for resume. Restoring fan control.");
             fan_control_enabled = true;
-            let _ = fan_control.write_to_fan("level", "auto");
+            fan_control.set_fan_to_previous();
             fan_control.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
         }
     }
