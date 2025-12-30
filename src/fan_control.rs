@@ -127,9 +127,15 @@ fn read_config_file() -> Vec<Temperature> {
         },
         Temperature {
             name: "level auto".to_string(),
-            low: 0,
+            low: 60,
             high: 70,
             speed: FanSpeed::Auto,
+        },
+        Temperature {
+            name: "level auto".to_string(),
+            low: 0,
+            high: 60,
+            speed: FanSpeed::Level0,
         },
     ]
     .to_vec();
