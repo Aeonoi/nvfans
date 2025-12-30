@@ -40,11 +40,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for sig in signals.forever() {
             if sig == SIGINT {
                 sender.send(SignalState::Interrupt).unwrap();
-            }
-            if sig == SIGUSR1 {
+            } else if sig == SIGUSR1 {
                 sender.send(SignalState::Sleep).unwrap();
-            }
-            if sig == SIGUSR2 {
+            } else if sig == SIGUSR2 {
                 sender.send(SignalState::Resume).unwrap();
             }
         }

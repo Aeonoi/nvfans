@@ -132,7 +132,7 @@ fn read_config_file() -> Vec<Temperature> {
             speed: FanSpeed::Auto,
         },
         Temperature {
-            name: "level auto".to_string(),
+            name: "level 0".to_string(),
             low: 0,
             high: 60,
             speed: FanSpeed::Level0,
@@ -193,7 +193,6 @@ fn read_config_file() -> Vec<Temperature> {
     }
 }
 
-#[derive(Clone)]
 pub struct FanControl {
     current_rule: Temperature,
     temperature_configs: Vec<Temperature>,
@@ -245,7 +244,7 @@ impl FanControl {
     }
 
     pub fn reset(&mut self) {
-        println!("[FAN] Quit requested, reenabling thinkpad_acpi fan control");
+        println!("[FAN] Quit requested or error has occured, reenabling thinkpad_acpi fan control");
         if self.write_to_fan("level", "auto").is_ok() {
             self.write_watchdog_timeout(0);
         }
@@ -348,6 +347,7 @@ impl FanControl {
         let status =
             self.write_to_fan("level", convert_fan_speed(self.current_rule.speed).as_str());
         if status.is_err() {
+            self.reset();
             panic!("Error setting back to previous fan speed");
         }
     }
@@ -366,6 +366,7 @@ impl FanControl {
                 let bytes_written = f.unwrap().write(string_to_write.as_bytes());
                 if bytes_written.is_err() {
                     self.exit_if_first_tick();
+                    self.reset();
                     panic!(
                         "Error writing to {}, did you enable fan_control=1?",
                         FAN_CONTROL_FILE
@@ -376,6 +377,7 @@ impl FanControl {
                 }
             } else {
                 self.exit_if_first_tick();
+                self.reset();
                 panic!(
                     "Error opening {}, do you have sudo access?",
                     FAN_CONTROL_FILE
@@ -383,6 +385,7 @@ impl FanControl {
             }
         } else {
             self.exit_if_first_tick();
+            self.reset();
             panic!(
                 "{} does not exist. Is thinkpad_acpi loaded properly?",
                 FAN_CONTROL_FILE
