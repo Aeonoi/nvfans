@@ -5,10 +5,16 @@ After=suspend.target
 After=suspend-then-hibernate.target
 After=hybrid-sleep.target
 After=hibernate.target
+After=systemd-suspend.service
+After=systemd-hibernate.service
+After=systemd-suspend-then-hibernate.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/pkill -x -USR2 nvfans
+ExecStart=/usr/bin/kill -SIGUSR2 nvfans
 
 [Install]
 WantedBy=sleep.target
+WantedBy=systemd-suspend.service
+WantedBy=systemd-hibernate.service
+WantedBy=systemd-suspend-then-hibernate.service

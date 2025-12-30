@@ -79,9 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if fan_control.get_pending_sleep_state() {
             fan_control.set_pending_sleep_state(false);
-            println!("[FAN] Fan control disabled for sleep");
+            println!("[FAN] Fan control disabled for sleep. Turning off fans.");
 
-            // Turn off the fan when the system goes to sleep
             if fan_control.write_to_fan("level", "0").is_ok() {
                 fan_control.write_watchdog_timeout(0);
             }
@@ -89,9 +88,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         if fan_control.get_pending_resume_state() {
             fan_control.set_pending_resume_state(false);
-            println!("[FAN] Fan control enabled for resume");
+            println!("[FAN] Fan control enabled for resume. Restoring fan control.");
             fan_control_enabled = true;
-            // expect(current_rule);
             let _ = fan_control.write_to_fan("level", "auto");
             fan_control.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
         }
