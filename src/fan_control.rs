@@ -127,14 +127,21 @@ fn read_config_file() -> Vec<Temperature> {
         },
         Temperature {
             name: "level auto".to_string(),
-            low: 0,
+            low: 60,
             high: 70,
             speed: FanSpeed::Auto,
+        },
+        Temperature {
+            name: "level 0".to_string(),
+            low: 0,
+            high: 60,
+            speed: FanSpeed::Level0,
         },
     ]
     .to_vec();
 
     let exists = Path::new(CONFIG_FILE).exists();
+    let full_speed_supported = full_speed_supported();
 
     println!("{}", CONFIG_FILE);
     if exists {
@@ -156,7 +163,7 @@ fn read_config_file() -> Vec<Temperature> {
                     }
                     let mut speed = data[2];
                     if speed == "full-speed" {
-                        if !full_speed_supported() {
+                        if !full_speed_supported {
                             eprintln!(
                                 "Full-speed is not supported on your laptop, will use level 7 as the maximum."
                             );
@@ -234,6 +241,13 @@ impl FanControl {
 
     pub fn get_run_state(&mut self) -> bool {
         self.run
+    }
+
+    pub fn reset(&mut self) {
+        println!("[FAN] Quit requested or error has occured, reenabling thinkpad_acpi fan control");
+        if self.write_to_fan("level", "auto").is_ok() {
+            self.write_watchdog_timeout(0);
+        }
     }
 
     pub fn unset_first_tick(&mut self) {
@@ -329,6 +343,15 @@ impl FanControl {
         return SetFanStatus::FanLevelInvalid;
     }
 
+    pub fn set_fan_to_previous(&mut self) {
+        let status =
+            self.write_to_fan("level", convert_fan_speed(self.current_rule.speed).as_str());
+        if status.is_err() {
+            self.reset();
+            panic!("Error setting back to previous fan speed");
+        }
+    }
+
     pub fn write_to_fan(&mut self, command: &str, value: &str) -> std::io::Result<()> {
         let exists = Path::new(FAN_CONTROL_FILE).exists();
         if exists {
@@ -341,9 +364,9 @@ impl FanControl {
             if f.is_ok() {
                 let string_to_write = format!("{} {}", command, value);
                 let bytes_written = f.unwrap().write(string_to_write.as_bytes());
-                println!("Wrote to {FAN_CONTROL_FILE}");
                 if bytes_written.is_err() {
                     self.exit_if_first_tick();
+                    self.reset();
                     panic!(
                         "Error writing to {}, did you enable fan_control=1?",
                         FAN_CONTROL_FILE
@@ -354,6 +377,7 @@ impl FanControl {
                 }
             } else {
                 self.exit_if_first_tick();
+                self.reset();
                 panic!(
                     "Error opening {}, do you have sudo access?",
                     FAN_CONTROL_FILE
@@ -361,6 +385,7 @@ impl FanControl {
             }
         } else {
             self.exit_if_first_tick();
+            self.reset();
             panic!(
                 "{} does not exist. Is thinkpad_acpi loaded properly?",
                 FAN_CONTROL_FILE
@@ -373,7 +398,7 @@ impl FanControl {
     pub fn write_watchdog_timeout(&mut self, timeout: i64) {
         assert!(timeout >= 0, "Timeout is smaller than 0");
         assert!(
-            timeout < DEFAULT_WATCHDOG_SECS,
+            timeout <= DEFAULT_WATCHDOG_SECS,
             "Timeout is greater than 120"
         );
         let binding = timeout.to_string();

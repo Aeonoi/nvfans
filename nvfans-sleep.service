@@ -1,0 +1,18 @@
+[Unit]
+Description=Notify nvfans of sleep
+Before=systemd-suspend.service
+Before=sleep.target
+Before=suspend.target
+Before=suspend-then-hibernate.target 
+Before=hybrid-sleep.target
+Before=hibernate.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kill -SIGUSR1 nvfans
+# Executing the signal handler races with sleep, so delay a bit. Also gives enough time for writing to the file.
+ExecStart=/usr/bin/sleep 1.5
+
+[Install]
+WantedBy=sleep.target
+WantedBy=systemd-suspend.service
