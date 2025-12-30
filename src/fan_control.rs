@@ -11,6 +11,7 @@ const TEMP_FILES_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input"; // Gets the
 const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // controls the fan speed
 const TEMP_INVALID: i64 = i64::min_value();
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
+const TICK_HYSTERESIS: i64 = 2;
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -202,6 +203,7 @@ pub struct FanControl {
     last_watchdog_ping: Instant,
     pending_sleep: bool,
     pending_resume: bool,
+    tick_penalty: i64,
 }
 
 impl FanControl {
@@ -220,6 +222,7 @@ impl FanControl {
             last_watchdog_ping: Instant::now(),
             pending_sleep: false,
             pending_resume: false,
+            tick_penalty: 3,
         }
     }
 
@@ -314,6 +317,7 @@ impl FanControl {
 
     pub fn set_fan_level(&mut self) -> SetFanStatus {
         let max_temp = self.get_max_temp();
+        let mut temp_penalty = 0;
 
         if max_temp == TEMP_INVALID {
             let status = self.write_to_fan("level", "full-speed");
@@ -323,12 +327,23 @@ impl FanControl {
             return SetFanStatus::FanLevelInvalid;
         }
 
+        if self.tick_penalty > 0 {
+            self.tick_penalty -= 1;
+        }
+
         for rule in self.temperature_configs.clone() {
-            if rule.high >= max_temp && rule.low <= max_temp {
+            if rule == self.current_rule {
+                if self.tick_penalty == 0 {
+                    return SetFanStatus::FanLevelNotSet;
+                }
+                temp_penalty = TICK_HYSTERESIS;
+            }
+            if rule.high - temp_penalty >= max_temp && rule.low <= max_temp {
                 if self.current_rule != rule {
                     self.current_rule = rule.clone();
                     let value = convert_fan_speed(rule.speed);
                     let status = self.write_to_fan("level", &value);
+                    self.tick_penalty = TICK_HYSTERESIS;
                     if status.is_err() {
                         return SetFanStatus::FanLevelError;
                     }
