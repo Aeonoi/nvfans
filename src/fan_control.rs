@@ -1,7 +1,7 @@
 use crate::suspend_detector::SuspendDetector;
 use glob::glob;
 use std::fs::read_to_string;
-use std::io::Write;
+use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::time::Instant;
@@ -273,9 +273,14 @@ impl FanControl {
             return TEMP_INVALID;
         }
 
-        let _ = f.unwrap().read_to_string(&mut buf);
+        let mut reader = BufReader::new(f.unwrap());
 
-        // println!("Path: {}", filename.display());
+        let result = reader.read_to_string(&mut buf);
+
+        if result.is_err() {
+            return TEMP_INVALID;
+        }
+
         if !buf.is_empty() {
             let i = buf.trim_end_matches('\n').parse::<i64>();
             match i {
@@ -370,15 +375,16 @@ impl FanControl {
     pub fn write_to_fan(&mut self, command: &str, value: &str) -> std::io::Result<()> {
         let exists = Path::new(FAN_CONTROL_FILE).exists();
         if exists {
-            let f = File::options()
+            let mut f = File::options()
                 .write(true)
                 .read(true)
                 .truncate(false)
                 .create(false)
                 .open(FAN_CONTROL_FILE);
             if f.is_ok() {
+                let mut writer = BufWriter::new(f.as_mut().unwrap());
                 let string_to_write = format!("{} {}", command, value);
-                let bytes_written = f.unwrap().write(string_to_write.as_bytes());
+                let bytes_written = writer.write(string_to_write.as_bytes());
                 if bytes_written.is_err() {
                     self.exit_if_first_tick();
                     self.reset();
