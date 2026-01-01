@@ -1,3 +1,4 @@
+mod cpu_usage;
 mod fan_control;
 mod suspend_detector;
 use signal_hook::{
@@ -12,9 +13,13 @@ use std::{
     time::Duration,
 };
 
-use crate::fan_control::{FanControl, SetFanStatus};
+use crate::{
+    cpu_usage::{CpuUsage, get_num_cores},
+    fan_control::{FanControl, SetFanStatus},
+};
 
-#[derive(Debug)]
+const TESTING: bool = true;
+
 enum SignalState {
     Interrupt,
     Sleep,
@@ -31,65 +36,80 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    let mut cpu_usage = CpuUsage::new();
+    let num_cores = get_num_cores();
+    println!("CPU CORES: {}", num_cores);
+    let mut info1: Vec<i64> = vec![0; 8];
+    let mut info2: Vec<i64> = vec![0; 8];
+    cpu_usage.get_cpu_times(&mut info1);
+    sleep(Duration::new(2, 0));
+    cpu_usage.get_cpu_times(&mut info2);
+    let mut idle: f64 = 0.0;
+    let mut total: f64 = 0.0;
+    cpu_usage.calculate_idle_and_total(info1, info2, &mut idle, &mut total);
+    println!("USAGE: {:.3}", cpu_usage.get_cpu_usage(idle, total));
+
     let mut fan_control = FanControl::new();
 
-    let mut signals = Signals::new([SIGINT, SIGUSR1, SIGUSR2])?;
-    let (sender, receiver) = channel();
+    if TESTING {
+        let mut signals = Signals::new([SIGINT, SIGUSR1, SIGUSR2])?;
+        let (sender, receiver) = channel();
 
-    thread::spawn(move || {
-        for sig in signals.forever() {
-            if sig == SIGINT {
-                sender.send(SignalState::Interrupt).unwrap();
-            } else if sig == SIGUSR1 {
-                sender.send(SignalState::Sleep).unwrap();
-            } else if sig == SIGUSR2 {
-                sender.send(SignalState::Resume).unwrap();
-            }
-        }
-    });
-
-    let mut fan_control_enabled = true;
-    while fan_control.get_run_state() {
-        let response = receiver.try_recv();
-        if response.is_ok() {
-            match response.unwrap() {
-                SignalState::Sleep => {
-                    fan_control.set_pending_sleep_state(true);
-                }
-                SignalState::Resume => {
-                    fan_control.set_pending_resume_state(true);
-                }
-                SignalState::Interrupt => {
-                    fan_control.reset();
-                    exit(0);
+        thread::spawn(move || {
+            for sig in signals.forever() {
+                if sig == SIGINT {
+                    sender.send(SignalState::Interrupt).unwrap();
+                } else if sig == SIGUSR1 {
+                    sender.send(SignalState::Sleep).unwrap();
+                } else if sig == SIGUSR2 {
+                    sender.send(SignalState::Resume).unwrap();
                 }
             }
-        }
-        if fan_control_enabled {
-            let set = fan_control.set_fan_level();
-            if set != SetFanStatus::FanLevelNotSet {
-                fan_control.maybe_ping_watchdog();
-            }
-        }
-        if fan_control.get_run_state() {
-            sleep(Duration::from_secs(1));
-            fan_control.unset_first_tick();
-        }
-        if fan_control.get_pending_sleep_state() {
-            fan_control.set_pending_sleep_state(false);
-            println!("[FAN] Fan control disabled for sleep. Turning off fans.");
+        });
 
-            if fan_control.write_to_fan("level", "0").is_ok() {
-                fan_control.write_watchdog_timeout(0);
+        let mut fan_control_enabled = true;
+        while fan_control.get_run_state() {
+            let response = receiver.try_recv();
+            if response.is_ok() {
+                match response.unwrap() {
+                    SignalState::Sleep => {
+                        fan_control.set_pending_sleep_state(true);
+                    }
+                    SignalState::Resume => {
+                        fan_control.set_pending_resume_state(true);
+                    }
+                    SignalState::Interrupt => {
+                        fan_control.reset();
+                        exit(0);
+                    }
+                }
             }
-            fan_control_enabled = false;
-        }
-        if fan_control.get_pending_resume_state() {
-            fan_control.set_pending_resume_state(false);
-            println!("[FAN] Fan control enabled for resume. Restoring fan control.");
-            fan_control_enabled = true;
-            fan_control.set_fan_to_previous();
-            fan_control.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
+            if fan_control_enabled {
+                let set = fan_control.set_fan_level();
+                if set != SetFanStatus::FanLevelNotSet {
+                    fan_control.maybe_ping_watchdog();
+                }
+            }
+            if fan_control.get_run_state() {
+                sleep(Duration::from_secs(1));
+                fan_control.unset_first_tick();
+            }
+            if fan_control.get_pending_sleep_state() {
+                fan_control.set_pending_sleep_state(false);
+                println!("[FAN] Fan control disabled for sleep. Turning off fans.");
+
+                if fan_control.write_to_fan("level", "0").is_ok() {
+                    fan_control.write_watchdog_timeout(0);
+                }
+                fan_control_enabled = false;
+            }
+            if fan_control.get_pending_resume_state() {
+                fan_control.set_pending_resume_state(false);
+                println!("[FAN] Fan control enabled for resume. Restoring fan control.");
+                fan_control_enabled = true;
+                fan_control.set_fan_to_previous();
+                fan_control.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
+            }
         }
     }
     fan_control.reset();

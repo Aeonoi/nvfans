@@ -11,7 +11,9 @@ const TEMP_FILES_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input"; // Gets the
 const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // controls the fan speed
 const TEMP_INVALID: i64 = i64::min_value();
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
-const TICK_HYSTERESIS: i64 = 4;
+
+const LOW_TICK_HYSTERESIS: i64 = 8;
+const HIGH_TICK_HYSTERESIS: i64 = 2;
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -341,14 +343,14 @@ impl FanControl {
                 if self.tick_penalty > 0 {
                     return SetFanStatus::FanLevelNotSet;
                 }
-                temp_penalty = TICK_HYSTERESIS;
+                temp_penalty = LOW_TICK_HYSTERESIS;
             }
             if rule.high - temp_penalty >= max_temp && rule.low <= max_temp {
                 if self.current_rule != rule {
                     self.current_rule = rule.clone();
                     let value = convert_fan_speed(rule.speed);
                     let status = self.write_to_fan("level", &value);
-                    self.tick_penalty = TICK_HYSTERESIS;
+                    self.tick_penalty = LOW_TICK_HYSTERESIS;
                     if status.is_err() {
                         return SetFanStatus::FanLevelError;
                     }
