@@ -1,3 +1,4 @@
+use crate::cpu_usage::CpuUsage;
 use crate::suspend_detector::SuspendDetector;
 use glob::glob;
 use std::fs::read_to_string;
@@ -12,14 +13,28 @@ const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // controls the fan speed
 const TEMP_INVALID: i64 = i64::min_value();
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
 
-const LOW_TICK_HYSTERESIS: i64 = 8;
-const HIGH_TICK_HYSTERESIS: i64 = 2;
+const NORMAL_TICK_HYSTERESIS: i64 = 3;
+const INFREQUENT_TICK_HYSTERESIS: i64 = 6;
+const HYSTERESIS_MULLTIPLE: i64 = 1;
+
+#[derive(PartialEq)]
+pub enum TickRule {
+    NormalTick,
+    InfrequentTick,
+}
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
 
 const fn millic_to_c(temp: i64) -> i64 {
     temp / 1000
+}
+
+fn convert_tick_rule(tick_rule: TickRule) -> i64 {
+    if tick_rule == TickRule::NormalTick {
+        return NORMAL_TICK_HYSTERESIS;
+    }
+    INFREQUENT_TICK_HYSTERESIS
 }
 
 fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
@@ -206,6 +221,7 @@ pub struct FanControl {
     pending_sleep: bool,
     pending_resume: bool,
     tick_penalty: i64,
+    cpu_usage: CpuUsage,
 }
 
 impl FanControl {
@@ -224,7 +240,8 @@ impl FanControl {
             last_watchdog_ping: Instant::now(),
             pending_sleep: false,
             pending_resume: false,
-            tick_penalty: 3,
+            tick_penalty: NORMAL_TICK_HYSTERESIS,
+            cpu_usage: CpuUsage::new(),
         }
     }
 
@@ -303,11 +320,6 @@ impl FanControl {
             match entry {
                 Ok(ref path) => {
                     max_temp = max_temp.max(self.read_temp_file(path.to_path_buf()));
-                    // println!(
-                    //     "{:?} has temperature: {}",
-                    //     path.display(),
-                    //     read_temp_file(path.to_path_buf())
-                    // )
                 }
                 Err(e) => println!("{:?}", e),
             }
@@ -335,6 +347,9 @@ impl FanControl {
         }
 
         if self.tick_penalty > 0 {
+            if self.tick_penalty % HYSTERESIS_MULLTIPLE == 0 {
+                self.cpu_usage.get_cpu_times();
+            }
             self.tick_penalty -= 1;
         }
 
@@ -343,14 +358,14 @@ impl FanControl {
                 if self.tick_penalty > 0 {
                     return SetFanStatus::FanLevelNotSet;
                 }
-                temp_penalty = LOW_TICK_HYSTERESIS;
+                temp_penalty = convert_tick_rule(self.cpu_usage.get_cpu_usage_diff());
             }
             if rule.high - temp_penalty >= max_temp && rule.low <= max_temp {
                 if self.current_rule != rule {
                     self.current_rule = rule.clone();
                     let value = convert_fan_speed(rule.speed);
                     let status = self.write_to_fan("level", &value);
-                    self.tick_penalty = LOW_TICK_HYSTERESIS;
+                    self.tick_penalty = convert_tick_rule(self.cpu_usage.get_cpu_usage_diff());
                     if status.is_err() {
                         return SetFanStatus::FanLevelError;
                     }
