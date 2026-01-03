@@ -204,6 +204,7 @@ pub struct FanControl {
     pending_sleep: bool,
     pending_resume: bool,
     tick_penalty: i64,
+    prev_temp: i64,
 }
 
 impl FanControl {
@@ -222,7 +223,8 @@ impl FanControl {
             last_watchdog_ping: Instant::now(),
             pending_sleep: false,
             pending_resume: false,
-            tick_penalty: 3,
+            tick_penalty: TICK_HYSTERESIS,
+            prev_temp: TEMP_INVALID,
         }
     }
 
@@ -344,11 +346,19 @@ impl FanControl {
                 temp_penalty = TICK_HYSTERESIS;
             }
             if rule.high - temp_penalty >= max_temp && rule.low <= max_temp {
-                if self.current_rule != rule {
+                if self.current_rule != rule && self.tick_penalty == 0 {
+                    self.tick_penalty = TICK_HYSTERESIS;
+                    // Spike in temperature, wait a little longer to see if it persists
+                    println!("Previous: {}, Current: {max_temp}", self.prev_temp);
+                    if self.prev_temp > 0 && max_temp - self.prev_temp >= 7 {
+                        self.prev_temp = max_temp;
+                        self.tick_penalty += TICK_HYSTERESIS;
+                        return SetFanStatus::FanLevelNotSet;
+                    }
+                    self.prev_temp = max_temp;
                     self.current_rule = rule.clone();
                     let value = convert_fan_speed(rule.speed);
                     let status = self.write_to_fan("level", &value);
-                    self.tick_penalty = TICK_HYSTERESIS;
                     if status.is_err() {
                         return SetFanStatus::FanLevelError;
                     }
