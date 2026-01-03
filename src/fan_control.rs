@@ -11,7 +11,8 @@ const TEMP_FILES_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input"; // Gets the
 const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // controls the fan speed
 const TEMP_INVALID: i64 = i64::min_value();
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
-const TICK_HYSTERESIS: i64 = 4;
+const TICK_HYSTERESIS: i64 = 5;
+const AGGRESSIVE_TICK_HYSTERESIS: i64 = 3;
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -349,11 +350,15 @@ impl FanControl {
                 if self.current_rule != rule && self.tick_penalty == 0 {
                     self.tick_penalty = TICK_HYSTERESIS;
                     // Spike in temperature, wait a little longer to see if it persists
-                    println!("Previous: {}, Current: {max_temp}", self.prev_temp);
                     if self.prev_temp > 0 && max_temp - self.prev_temp >= 7 {
                         self.prev_temp = max_temp;
                         self.tick_penalty += TICK_HYSTERESIS;
                         return SetFanStatus::FanLevelNotSet;
+                    }
+                    // Spike down, we want to do aggressive fan speed down
+                    else if self.prev_temp > 0 && self.prev_temp - max_temp >= 7 {
+                        self.prev_temp = max_temp;
+                        self.tick_penalty = AGGRESSIVE_TICK_HYSTERESIS;
                     }
                     self.prev_temp = max_temp;
                     self.current_rule = rule.clone();
