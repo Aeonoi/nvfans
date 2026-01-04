@@ -11,8 +11,9 @@ const TEMP_FILES_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input"; // Gets the
 const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // controls the fan speed
 const TEMP_INVALID: i64 = i64::min_value();
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
-const TICK_HYSTERESIS: i64 = 5;
-const AGGRESSIVE_TICK_HYSTERESIS: i64 = 3;
+const SLOW_TICK_HYSTERESIS: i64 = 8;
+const TICK_HYSTERESIS: i64 = 4;
+const AGGRESSIVE_TICK_HYSTERESIS: i64 = 2;
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -325,7 +326,6 @@ impl FanControl {
 
     pub fn set_fan_level(&mut self) -> SetFanStatus {
         let max_temp = self.get_max_temp();
-        let mut temp_penalty = 0;
 
         if max_temp == TEMP_INVALID {
             let status = self.write_to_fan("level", "full-speed");
@@ -342,21 +342,22 @@ impl FanControl {
         for rule in self.temperature_configs.clone() {
             if rule == self.current_rule {
                 if self.tick_penalty > 0 {
+                    // Reset prev temp after a while
+                    self.prev_temp = max_temp;
                     return SetFanStatus::FanLevelNotSet;
                 }
-                temp_penalty = TICK_HYSTERESIS;
             }
-            if rule.high - temp_penalty >= max_temp && rule.low <= max_temp {
+            if rule.high >= max_temp && rule.low <= max_temp {
                 if self.current_rule != rule && self.tick_penalty == 0 {
                     self.tick_penalty = TICK_HYSTERESIS;
                     // Spike in temperature, wait a little longer to see if it persists
-                    if self.prev_temp > 0 && max_temp - self.prev_temp >= 7 {
+                    if self.prev_temp > 0 && max_temp - self.prev_temp >= 6 {
                         self.prev_temp = max_temp;
-                        self.tick_penalty += TICK_HYSTERESIS;
+                        self.tick_penalty += SLOW_TICK_HYSTERESIS;
                         return SetFanStatus::FanLevelNotSet;
                     }
                     // Spike down, we want to do aggressive fan speed down
-                    else if self.prev_temp > 0 && self.prev_temp - max_temp >= 7 {
+                    else if self.prev_temp > 0 && self.prev_temp - max_temp >= 5 {
                         self.prev_temp = max_temp;
                         self.tick_penalty = AGGRESSIVE_TICK_HYSTERESIS;
                     }
