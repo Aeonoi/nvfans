@@ -1,3 +1,4 @@
+mod cpu_usage;
 mod fan_control;
 mod suspend_detector;
 use signal_hook::{
@@ -25,9 +26,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = env::args();
 
     if args.len() != 1 {
-        println!("zcfan: Zero-configuration ThinkPad fan daemon.\n\n");
+        println!("nvfans: Customizable ThinkPad fan daemon.\n\n");
         println!("  [any argument]     Show this help\n\n");
-        println!("See the zcfan(1) man page for details.\n");
+        println!("See the nvfans(1) man page for details.\n");
         return Ok(());
     }
 

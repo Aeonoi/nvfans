@@ -1,3 +1,4 @@
+use crate::cpu_usage::CpuUsage;
 use crate::suspend_detector::SuspendDetector;
 use glob::glob;
 use std::fs::read_to_string;
@@ -8,12 +9,13 @@ use std::time::Instant;
 use std::{fs::File, io::Read};
 
 const TEMP_FILES_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input"; // Gets the temperatures
-const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // controls the fan speed
+const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // Controls the fan speed
 const TEMP_INVALID: i64 = i64::min_value();
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
 const SLOW_TICK_HYSTERESIS: i64 = 8;
 const TICK_HYSTERESIS: i64 = 4;
-const AGGRESSIVE_TICK_HYSTERESIS: i64 = 2;
+const AGGRESSIVE_TICK_HYSTERESIS: i64 = 1;
+const HARD_CAP: i64 = 85; // The temperature cap before we turn on the highest fan speed
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -207,6 +209,7 @@ pub struct FanControl {
     pending_resume: bool,
     tick_penalty: i64,
     prev_temp: i64,
+    cpu_usage: CpuUsage,
 }
 
 impl FanControl {
@@ -227,6 +230,7 @@ impl FanControl {
             pending_resume: false,
             tick_penalty: TICK_HYSTERESIS,
             prev_temp: TEMP_INVALID,
+            cpu_usage: CpuUsage::new(),
         }
     }
 
@@ -326,6 +330,7 @@ impl FanControl {
 
     pub fn set_fan_level(&mut self) -> SetFanStatus {
         let max_temp = self.get_max_temp();
+        let mut temp_penalty = 0;
 
         if max_temp == TEMP_INVALID {
             let status = self.write_to_fan("level", "full-speed");
@@ -336,31 +341,58 @@ impl FanControl {
         }
 
         if self.tick_penalty > 0 {
+            let cpu_times = self.cpu_usage.get_cpu_times();
+            self.cpu_usage.set_cpu_times(cpu_times);
             self.tick_penalty -= 1;
         }
 
         for rule in self.temperature_configs.clone() {
             if rule == self.current_rule {
                 if self.tick_penalty > 0 {
-                    // Reset prev temp after a while
-                    self.prev_temp = max_temp;
                     return SetFanStatus::FanLevelNotSet;
                 }
+                temp_penalty = TICK_HYSTERESIS;
             }
-            if rule.high >= max_temp && rule.low <= max_temp {
-                if self.current_rule != rule && self.tick_penalty == 0 {
-                    self.tick_penalty = TICK_HYSTERESIS;
-                    // Spike in temperature, wait a little longer to see if it persists
-                    if self.prev_temp > 0 && max_temp - self.prev_temp >= 6 {
+            if rule.high - temp_penalty >= max_temp && rule.low <= max_temp {
+                if self.current_rule != rule {
+                    let end = self.cpu_usage.get_cpu_times();
+                    let usage = self.cpu_usage.get_cpu_usage(end.clone());
+                    self.cpu_usage.set_cpu_times(end);
+                    let prev_usage = self.cpu_usage.get_prev_usage();
+
+                    // Do not full speed or level 7 fan speed if below the hard cap,
+                    // prevents loud fan speeds spin ups
+                    // TODO: Get battery status and use that as another option instead of hard cap
+                    if (rule.speed == FanSpeed::Level7 || rule.speed == FanSpeed::FullSpeed)
+                        && max_temp < HARD_CAP
+                        && usage < 10.0
+                    {
+                        self.tick_penalty = SLOW_TICK_HYSTERESIS;
                         self.prev_temp = max_temp;
+                        return SetFanStatus::FanLevelNotSet;
+                    }
+
+                    self.tick_penalty = TICK_HYSTERESIS;
+
+                    // Spike, wait a little longer to see if it persists
+                    // Min 3.5 diff even on higher end CPUs
+                    if (self.prev_temp > 0 && max_temp - self.prev_temp >= 6)
+                        || usage - prev_usage >= 3.5
+                    {
+                        self.prev_temp = max_temp;
+                        self.cpu_usage.set_prev_usage(usage);
                         self.tick_penalty += SLOW_TICK_HYSTERESIS;
                         return SetFanStatus::FanLevelNotSet;
                     }
                     // Spike down, we want to do aggressive fan speed down
-                    else if self.prev_temp > 0 && self.prev_temp - max_temp >= 5 {
+                    else if (self.prev_temp > 0 && self.prev_temp - max_temp >= 5)
+                        || usage - prev_usage >= 5.0
+                    {
                         self.prev_temp = max_temp;
+                        self.cpu_usage.set_prev_usage(usage);
                         self.tick_penalty = AGGRESSIVE_TICK_HYSTERESIS;
                     }
+
                     self.prev_temp = max_temp;
                     self.current_rule = rule.clone();
                     let value = convert_fan_speed(rule.speed);
