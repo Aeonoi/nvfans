@@ -35,6 +35,7 @@ fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
         "7" => FanSpeed::Level7,
         "full-speed" => FanSpeed::FullSpeed,
         "auto" => FanSpeed::Auto,
+        "Auto" => FanSpeed::Auto,
         _ => FanSpeed::Auto,
     }
 }
@@ -61,7 +62,7 @@ struct Temperature {
     speed: FanSpeed,
 }
 
-#[derive(PartialEq, Copy, Clone)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 enum FanSpeed {
     Level0,
     Level1,
@@ -162,7 +163,7 @@ fn read_config_file() -> (i64, Vec<Temperature>) {
                         return (85, default_config);
                     }
                     println!(
-                        "[CFG] Fan speed 7 and full speed will be turned on after the temperature {} ",
+                        "[CFG] Fan speed 7 and full speed will be turned on when temperatures reach {}C ",
                         hard_cap.clone().unwrap()
                     );
                 }
@@ -178,6 +179,10 @@ fn read_config_file() -> (i64, Vec<Temperature>) {
                         return (85, default_config);
                     }
                     let mut speed = data[2];
+                    if speed.find(" ").is_some() {
+                        eprintln!("Incorrect speed value for {speed}, must not contain any spaces");
+                        speed = "auto";
+                    }
                     if speed == "full-speed" {
                         if !full_speed_supported {
                             eprintln!(
@@ -344,7 +349,6 @@ impl FanControl {
 
     pub fn set_fan_level(&mut self) -> SetFanStatus {
         let max_temp = self.get_max_temp();
-        let mut temp_penalty = 0;
 
         if max_temp == TEMP_INVALID {
             let status = self.write_to_fan("level", "full-speed");
@@ -365,28 +369,26 @@ impl FanControl {
                 if self.tick_penalty > 0 {
                     return SetFanStatus::FanLevelNotSet;
                 }
-                temp_penalty = TICK_HYSTERESIS;
             }
-            if rule.high - temp_penalty >= max_temp && rule.low <= max_temp {
+            if rule.high >= max_temp && rule.low <= max_temp {
                 if self.current_rule != rule {
                     let end = self.cpu_usage.get_cpu_times();
                     let usage = self.cpu_usage.get_cpu_usage(end.clone());
                     self.cpu_usage.set_cpu_times(end);
                     let prev_usage = self.cpu_usage.get_prev_usage();
 
+                    self.tick_penalty = TICK_HYSTERESIS;
+
                     // Do not full speed or level 7 fan speed if below the hard cap,
                     // prevents loud fan speeds spin ups
                     // TODO: Get battery status and use that as another option instead of hard cap
                     if (rule.speed == FanSpeed::Level7 || rule.speed == FanSpeed::FullSpeed)
-                        && max_temp < self.hard_cap
-                        && usage < 10.0
+                        && (max_temp < self.hard_cap || usage < 10.0)
                     {
                         self.tick_penalty = SLOW_TICK_HYSTERESIS;
                         self.prev_temp = max_temp;
                         return SetFanStatus::FanLevelNotSet;
                     }
-
-                    self.tick_penalty = TICK_HYSTERESIS;
 
                     // Spike, wait a little longer to see if it persists
                     // Min 3.5 diff even on higher end CPUs
