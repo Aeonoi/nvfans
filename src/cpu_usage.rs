@@ -20,7 +20,7 @@ impl CpuUsage {
     }
 
     pub fn set_cpu_times(&mut self, info: Vec<i64>) {
-        self.tick_info = info.clone();
+        self.tick_info = info;
     }
 
     pub fn get_prev_usage(&mut self) -> f64 {
