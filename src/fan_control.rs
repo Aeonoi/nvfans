@@ -16,6 +16,10 @@ const LONG_TICK_HYSTERESIS: i64 = 8;
 const TICK_HYSTERESIS: i64 = 4;
 const AGGRESSIVE_TICK_HYSTERESIS: i64 = 2;
 
+const CPU_USAGE_SPIKE_THRESHOLD: f64 = 3.5;
+const TEMP_SPIKE_THRESHOLD: i64 = 6;
+const TEMP_DROP_THRESHOLD: i64 = 5;
+
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
 
@@ -180,7 +184,7 @@ fn read_config_file() -> (i64, Vec<Temperature>) {
                         return (85, default_config);
                     }
                     let mut speed = data[2];
-                    if speed.find(" ").is_some() {
+                    if speed.contains(' ') {
                         eprintln!("Incorrect speed value for {speed}, must not contain any spaces");
                         speed = "auto";
                     }
@@ -397,8 +401,8 @@ impl FanControl {
 
                     // Spike, wait a little longer to see if it persists
                     // Min 3.5 diff even on higher end CPUs
-                    if (self.prev_temp > 0 && max_temp - self.prev_temp >= 6)
-                        || (usage - prev_usage >= 3.5)
+                    if (self.prev_temp > 0 && max_temp - self.prev_temp >= TEMP_SPIKE_THRESHOLD)
+                        || (usage - prev_usage >= CPU_USAGE_SPIKE_THRESHOLD)
                     {
                         self.prev_temp = max_temp;
                         self.cpu_usage.set_prev_usage(usage);
@@ -406,8 +410,9 @@ impl FanControl {
                         return SetFanStatus::FanLevelNotSet;
                     }
                     // Spike down, we want to do aggressive fan speed down
-                    else if (self.prev_temp > 0 && self.prev_temp - max_temp >= 5)
-                        || (usage - prev_usage >= 3.5)
+                    else if (self.prev_temp > 0
+                        && self.prev_temp - max_temp >= TEMP_DROP_THRESHOLD)
+                        || (usage - prev_usage >= CPU_USAGE_SPIKE_THRESHOLD)
                     {
                         self.prev_temp = max_temp;
                         self.cpu_usage.set_prev_usage(usage);

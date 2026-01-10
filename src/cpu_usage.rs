@@ -35,24 +35,25 @@ impl CpuUsage {
         let f = File::open(STAT_FILE);
         if f.is_err() {
             eprintln!("Error opening {STAT_FILE}");
+            return self.tick_info.clone();
         }
         let mut reader = BufReader::new(f.unwrap());
         let mut info = vec![0; 8];
 
         let mut s = String::default();
         let status = reader.read_line(&mut s);
-        // Handle read better since it is not guarenteed that the first line is the line that we
+        // Handle read better since it is not guaranteed that the first line is the line that we
         // want
         if status.is_ok() {
             let data: Vec<&str> = s
-                .split(" ")
+                .split_whitespace()
                 .filter(|x| !x.is_empty() && x.parse::<i64>().is_ok())
                 .collect();
             for i in 0..info.len() {
                 info[i] = data[i].parse::<i64>().unwrap();
             }
         }
-        return info;
+        info
     }
 
     pub fn get_cpu_usage(&mut self, end: Vec<i64>) -> f64 {
