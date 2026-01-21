@@ -1,7 +1,7 @@
-use crate::cpu_usage::CpuUsage;
 use crate::suspend_detector::SuspendDetector;
 use glob::glob;
 use std::{
+    collections::VecDeque,
     fs::{File, read_to_string},
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
@@ -13,13 +13,8 @@ const TEMP_FILES_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input"; // Gets the
 const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // Controls the fan speed
 const TEMP_INVALID: i64 = i64::MIN;
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
-const LONG_TICK_HYSTERESIS: i64 = 8;
 const TICK_HYSTERESIS: i64 = 4;
-const AGGRESSIVE_TICK_HYSTERESIS: i64 = 2;
-
-const CPU_USAGE_SPIKE_THRESHOLD: f64 = 3.0;
-const TEMP_SPIKE_THRESHOLD: i64 = 6;
-const TEMP_DROP_THRESHOLD: i64 = 4;
+const TEMP_OFFSET: i64 = 2;
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -205,10 +200,9 @@ pub struct FanControl {
     pending_sleep: bool,
     pending_resume: bool,
     tick: i64,
-    prev_temp: i64,
-    cpu_usage: CpuUsage,
     hard_cap: i64,
     default_config_flag: bool,
+    temp_history: VecDeque<i64>,
 }
 
 impl FanControl {
@@ -229,10 +223,9 @@ impl FanControl {
             pending_sleep: false,
             pending_resume: false,
             tick: TICK_HYSTERESIS,
-            prev_temp: TEMP_INVALID,
-            cpu_usage: CpuUsage::new(),
             hard_cap: config.0, // The temperature cap before we turn on the highest fan speed
             default_config_flag: config.2,
+            temp_history: VecDeque::new(),
         }
     }
 
@@ -395,44 +388,25 @@ impl FanControl {
             return SetFanStatus::FanLevelInvalid;
         }
 
+        let count = match self.temp_history.len() {
+            0 => 1 as i64,
+            len => len as i64,
+        };
+
         if self.tick > 0 {
-            let cpu_times = self.cpu_usage.get_cpu_times();
-            self.cpu_usage.set_cpu_times(cpu_times);
+            if count == 15 {
+                self.temp_history.pop_front();
+            }
+            self.temp_history.push_back(max_temp);
             self.tick -= 1;
         }
 
         let current_speed = self.current_rule.speed;
+        let avg_temp = (self.temp_history.iter().sum::<i64>() / count) - TEMP_OFFSET;
 
         if self.tick == 0 {
-            let end = self.cpu_usage.get_cpu_times();
-            let usage = self.cpu_usage.get_cpu_usage(end.clone());
-            self.cpu_usage.set_cpu_times(end);
-            let prev_usage = self.cpu_usage.get_prev_usage();
-
             self.tick = TICK_HYSTERESIS;
-            // Spike up
-            if (self.prev_temp > 0 && max_temp - self.prev_temp >= TEMP_SPIKE_THRESHOLD)
-                || (usage - prev_usage >= CPU_USAGE_SPIKE_THRESHOLD)
-            {
-                // println!(
-                //     "[FAN] Detected spike! At temp: {max_temp} and previous temp: {}. Skipping!",
-                //     self.prev_temp
-                // );
-                self.prev_temp = max_temp;
-                self.cpu_usage.set_prev_usage(usage);
-                self.tick += LONG_TICK_HYSTERESIS;
-                return SetFanStatus::FanLevelNotSet;
-            }
-            // Spike down, we want to do aggressive fan speed down very quickly
-            else if (self.prev_temp > 0 && self.prev_temp - max_temp >= TEMP_DROP_THRESHOLD)
-                || (usage - prev_usage >= CPU_USAGE_SPIKE_THRESHOLD)
-            {
-                self.prev_temp = max_temp;
-                self.cpu_usage.set_prev_usage(usage);
-                self.tick = AGGRESSIVE_TICK_HYSTERESIS;
-            }
-
-            if max_temp < 60 && current_speed != FanSpeed::Level0 {
+            if avg_temp <= 60 && current_speed != FanSpeed::Level0 {
                 let s = self.write_to_fan("level", "0");
                 if s.is_err() {
                     return SetFanStatus::FanLevelNotSet;
@@ -443,10 +417,9 @@ impl FanControl {
                     high: 60,
                     speed: FanSpeed::Level0,
                 };
-                self.prev_temp = max_temp;
                 println!("[FAN] Temperature now {}C, fan set to level 0", max_temp);
                 return SetFanStatus::FanLevelSet;
-            } else if max_temp > 60 && max_temp < 75 && current_speed != FanSpeed::Level2 {
+            } else if avg_temp >= 60 && avg_temp <= 75 && current_speed != FanSpeed::Level2 {
                 let s = self.write_to_fan("level", "2");
                 if s.is_err() {
                     return SetFanStatus::FanLevelNotSet;
@@ -457,10 +430,9 @@ impl FanControl {
                     high: 75,
                     speed: FanSpeed::Level2,
                 };
-                self.prev_temp = max_temp;
                 println!("[FAN] Temperature now {}C, fan set to level 2", max_temp);
                 return SetFanStatus::FanLevelSet;
-            } else if max_temp > 75 && max_temp < 90 && current_speed != FanSpeed::Level3 {
+            } else if avg_temp >= 75 && avg_temp <= 90 && current_speed != FanSpeed::Level3 {
                 let s = self.write_to_fan("level", "3");
                 if s.is_err() {
                     return SetFanStatus::FanLevelNotSet;
@@ -471,10 +443,9 @@ impl FanControl {
                     high: 90,
                     speed: FanSpeed::Level3,
                 };
-                self.prev_temp = max_temp;
                 println!("[FAN] Temperature now {}C, fan set to level 3", max_temp);
                 return SetFanStatus::FanLevelSet;
-            } else if max_temp > 90 && current_speed != FanSpeed::Level7 {
+            } else if avg_temp >= 90 && current_speed != FanSpeed::Level7 {
                 let s = self.write_to_fan("level", "7");
                 if s.is_err() {
                     return SetFanStatus::FanLevelNotSet;
@@ -485,7 +456,6 @@ impl FanControl {
                     high: 100,
                     speed: FanSpeed::Level7,
                 };
-                self.prev_temp = max_temp;
                 println!("[FAN] Temperature now {}C, fan set to level 7", max_temp);
                 return SetFanStatus::FanLevelSet;
             } else {
