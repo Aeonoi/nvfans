@@ -1,5 +1,5 @@
 [Unit]
-Description=Customizable fan control for ThinkPad with NVIDIA GPU
+Description=Dynamic fan control for ThinkPads
 Conflicts=thinkfan.service
 
 [Service]
