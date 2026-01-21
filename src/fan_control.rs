@@ -14,8 +14,9 @@ const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // Controls the fan speed
 const TEMP_INVALID: i64 = i64::MIN;
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
 const TICK_HYSTERESIS: i64 = 4;
-const FAST_TICK_HYSTERESIS: i64 = 2;
-const TEMP_OFFSET: i64 = 2;
+const FAST_TICK_HYSTERESIS: i64 = 2; // Speeds up the time change fan speeds
+const TEMP_OFFSET: i64 = 2; // Offsets the temperature when determining whether to fan speed switch
+const TEMP_HISTORY_SIZE: i64 = 15; // Arbitrary history size
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -184,10 +185,10 @@ fn read_config_file() -> (i64, Vec<Temperature>, bool) {
             eprintln!("Error opening file, using default config");
             return (default_hard_cap, default_config, true);
         }
-        return (hard_cap.unwrap(), config, false);
+        (hard_cap.unwrap(), config, false)
     } else {
         println!("[CFG] No config file found. Defaulting to application default config");
-        return (default_hard_cap, default_config, true);
+        (default_hard_cap, default_config, true)
     }
 }
 
@@ -295,7 +296,7 @@ impl FanControl {
             val = TEMP_INVALID;
         }
 
-        return val;
+        val
     }
 
     pub fn get_max_temp(&mut self) -> i64 {
@@ -321,7 +322,7 @@ impl FanControl {
             return TEMP_INVALID;
         }
 
-        return millic_to_c(max_temp);
+        millic_to_c(max_temp)
     }
 
     pub fn set_fan_level(&mut self) -> SetFanStatus {
@@ -375,7 +376,7 @@ impl FanControl {
             }
         }
 
-        return SetFanStatus::FanLevelInvalid;
+        SetFanStatus::FanLevelInvalid
     }
 
     fn default_set_fan_level(&mut self) -> SetFanStatus {
@@ -395,7 +396,7 @@ impl FanControl {
         };
 
         if self.tick > 0 {
-            if count == 15 {
+            if count == TEMP_HISTORY_SIZE {
                 self.temp_history.pop_front();
             }
             self.temp_history.push_back(max_temp);
@@ -431,7 +432,7 @@ impl FanControl {
             }
         }
 
-        return SetFanStatus::FanLevelInvalid;
+        SetFanStatus::FanLevelInvalid
     }
 
     fn set_fan_level_helper(
@@ -444,16 +445,16 @@ impl FanControl {
     ) -> SetFanStatus {
         let s = self.write_to_fan("level", level);
         if s.is_err() {
-            return SetFanStatus::FanLevelNotSet;
+            return SetFanStatus::FanLevelError;
         }
         self.current_rule = Temperature {
-            name: format!("level {level}").to_string(),
-            low: low,
-            high: high,
-            speed: speed,
+            name: format!("level {level}"),
+            low,
+            high,
+            speed,
         };
         println!("[FAN] Temperature now {max_temp}C, fan set to level {level}",);
-        return SetFanStatus::FanLevelSet;
+        SetFanStatus::FanLevelSet
     }
 
     pub fn set_fan_to_previous(&mut self) {
