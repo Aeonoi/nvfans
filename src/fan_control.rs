@@ -460,7 +460,7 @@ impl FanControl {
                 self.prev_temp = max_temp;
                 println!("[FAN] Temperature now {}C, fan set to level 2", max_temp);
                 return SetFanStatus::FanLevelSet;
-            } else if max_temp > 75 && max_temp < 85 && current_speed != FanSpeed::Level3 {
+            } else if max_temp > 75 && max_temp < 90 && current_speed != FanSpeed::Level3 {
                 let s = self.write_to_fan("level", "3");
                 if s.is_err() {
                     return SetFanStatus::FanLevelNotSet;
@@ -468,20 +468,20 @@ impl FanControl {
                 self.current_rule = Temperature {
                     name: "level 3".to_string(),
                     low: 75,
-                    high: 85,
+                    high: 90,
                     speed: FanSpeed::Level3,
                 };
                 self.prev_temp = max_temp;
                 println!("[FAN] Temperature now {}C, fan set to level 3", max_temp);
                 return SetFanStatus::FanLevelSet;
-            } else if max_temp > 85 && current_speed != FanSpeed::Level7 {
+            } else if max_temp > 90 && current_speed != FanSpeed::Level7 {
                 let s = self.write_to_fan("level", "7");
                 if s.is_err() {
                     return SetFanStatus::FanLevelNotSet;
                 }
                 self.current_rule = Temperature {
                     name: "level 7".to_string(),
-                    low: 85,
+                    low: 90,
                     high: 100,
                     speed: FanSpeed::Level7,
                 };
