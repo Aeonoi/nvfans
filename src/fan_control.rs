@@ -117,27 +117,7 @@ fn full_speed_supported() -> bool {
 }
 
 fn read_config_file() -> (i64, Vec<Temperature>, bool) {
-    let default_config: Vec<Temperature> = [
-        Temperature {
-            name: "level 7".to_string(),
-            low: 90,
-            high: 100,
-            speed: FanSpeed::Level7,
-        },
-        Temperature {
-            name: "level auto".to_string(),
-            low: 60,
-            high: 90,
-            speed: FanSpeed::Auto,
-        },
-        Temperature {
-            name: "level 0".to_string(),
-            low: 0,
-            high: 60,
-            speed: FanSpeed::Level0,
-        },
-    ]
-    .to_vec();
+    let default_config: Vec<Temperature> = vec![];
 
     let default_hard_cap = 85;
     let mut hard_cap = Ok(85);
