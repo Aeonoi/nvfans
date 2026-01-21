@@ -14,6 +14,7 @@ const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // Controls the fan speed
 const TEMP_INVALID: i64 = i64::MIN;
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
 const TICK_HYSTERESIS: i64 = 4;
+const FAST_TICK_HYSTERESIS: i64 = 2;
 const TEMP_OFFSET: i64 = 2;
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
@@ -389,7 +390,7 @@ impl FanControl {
         }
 
         let count = match self.temp_history.len() {
-            0 => 1 as i64,
+            0 => 1,
             len => len as i64,
         };
 
@@ -402,68 +403,57 @@ impl FanControl {
         }
 
         let current_speed = self.current_rule.speed;
-        let avg_temp = (self.temp_history.iter().sum::<i64>() / count) - TEMP_OFFSET;
+        let avg_temp = match self.temp_history.iter().sum::<i64>() {
+            0 => max_temp,
+            sum => (sum / count) - TEMP_OFFSET,
+        };
 
         if self.tick == 0 {
             self.tick = TICK_HYSTERESIS;
             if avg_temp <= 60 && current_speed != FanSpeed::Level0 {
-                let s = self.write_to_fan("level", "0");
-                if s.is_err() {
-                    return SetFanStatus::FanLevelNotSet;
+                return self.set_fan_level_helper("0", 0, 60, FanSpeed::Level0, max_temp);
+            } else if avg_temp > 60 && avg_temp <= 75 && current_speed != FanSpeed::Level2 {
+                return self.set_fan_level_helper("2", 60, 75, FanSpeed::Level2, max_temp);
+            } else if avg_temp > 75 && avg_temp <= 90 && current_speed != FanSpeed::Level3 {
+                return self.set_fan_level_helper("3", 75, 90, FanSpeed::Level3, max_temp);
+            } else if avg_temp > 90 {
+                // Set to fan speed level 6 before switching to fan speed level 7 to prevent some
+                // unnecessary drastic speed ups
+                if current_speed != FanSpeed::Level6 {
+                    self.tick = FAST_TICK_HYSTERESIS;
+                    return self.set_fan_level_helper("6", 90, 100, FanSpeed::Level6, max_temp);
+                } else {
+                    return self.set_fan_level_helper("7", 90, 100, FanSpeed::Level7, max_temp);
                 }
-                self.current_rule = Temperature {
-                    name: "level 0".to_string(),
-                    low: 0,
-                    high: 60,
-                    speed: FanSpeed::Level0,
-                };
-                println!("[FAN] Temperature now {}C, fan set to level 0", max_temp);
-                return SetFanStatus::FanLevelSet;
-            } else if avg_temp >= 60 && avg_temp <= 75 && current_speed != FanSpeed::Level2 {
-                let s = self.write_to_fan("level", "2");
-                if s.is_err() {
-                    return SetFanStatus::FanLevelNotSet;
-                }
-                self.current_rule = Temperature {
-                    name: "level 2".to_string(),
-                    low: 60,
-                    high: 75,
-                    speed: FanSpeed::Level2,
-                };
-                println!("[FAN] Temperature now {}C, fan set to level 2", max_temp);
-                return SetFanStatus::FanLevelSet;
-            } else if avg_temp >= 75 && avg_temp <= 90 && current_speed != FanSpeed::Level3 {
-                let s = self.write_to_fan("level", "3");
-                if s.is_err() {
-                    return SetFanStatus::FanLevelNotSet;
-                }
-                self.current_rule = Temperature {
-                    name: "level 3".to_string(),
-                    low: 75,
-                    high: 90,
-                    speed: FanSpeed::Level3,
-                };
-                println!("[FAN] Temperature now {}C, fan set to level 3", max_temp);
-                return SetFanStatus::FanLevelSet;
-            } else if avg_temp >= 90 && current_speed != FanSpeed::Level7 {
-                let s = self.write_to_fan("level", "7");
-                if s.is_err() {
-                    return SetFanStatus::FanLevelNotSet;
-                }
-                self.current_rule = Temperature {
-                    name: "level 7".to_string(),
-                    low: 90,
-                    high: 100,
-                    speed: FanSpeed::Level7,
-                };
-                println!("[FAN] Temperature now {}C, fan set to level 7", max_temp);
-                return SetFanStatus::FanLevelSet;
             } else {
+                self.tick = TICK_HYSTERESIS;
                 return SetFanStatus::FanLevelNotSet;
             }
         }
 
         return SetFanStatus::FanLevelInvalid;
+    }
+
+    fn set_fan_level_helper(
+        &mut self,
+        level: &str,
+        low: i64,
+        high: i64,
+        speed: FanSpeed,
+        max_temp: i64,
+    ) -> SetFanStatus {
+        let s = self.write_to_fan("level", level);
+        if s.is_err() {
+            return SetFanStatus::FanLevelNotSet;
+        }
+        self.current_rule = Temperature {
+            name: format!("level {level}").to_string(),
+            low: low,
+            high: high,
+            speed: speed,
+        };
+        println!("[FAN] Temperature now {max_temp}C, fan set to level {level}",);
+        return SetFanStatus::FanLevelSet;
     }
 
     pub fn set_fan_to_previous(&mut self) {
