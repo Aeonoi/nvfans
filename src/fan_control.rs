@@ -347,11 +347,12 @@ impl FanControl {
             len => len as i64,
         };
 
+        if count == TEMP_HISTORY_SIZE as i64 {
+            self.temp_history.pop_front();
+        }
+        self.temp_history.push_back(max_temp);
+
         if self.tick > 0 {
-            if count == TEMP_HISTORY_SIZE as i64 {
-                self.temp_history.pop_front();
-            }
-            self.temp_history.push_back(max_temp);
             self.tick -= 1;
         }
 
