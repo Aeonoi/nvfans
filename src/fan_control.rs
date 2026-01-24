@@ -16,7 +16,7 @@ const CONFIG_FILE: &str = "/etc/nvfans.conf";
 const TICK_HYSTERESIS: i64 = 4;
 const FAST_TICK_HYSTERESIS: i64 = 2; // Speeds up the time to change fan speeds
 const TEMP_OFFSET: i64 = 2; // Offsets the temperature when determining whether to switch fan speeds
-const TEMP_HISTORY_SIZE: usize = 15; // Arbitrary history size
+const TEMP_HISTORY_SIZE: usize = 30; // Arbitrary history size
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -57,7 +57,7 @@ fn convert_fan_speed(fan_speed: FanSpeed) -> String {
     }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 struct Temperature {
     name: String,
     low: i64,
@@ -65,7 +65,7 @@ struct Temperature {
     speed: FanSpeed,
 }
 
-#[derive(PartialEq, Copy, Clone)]
+#[derive(PartialEq, Copy, Clone, Debug)]
 enum FanSpeed {
     Level0,
     Level1,
@@ -113,11 +113,40 @@ fn full_speed_supported() -> bool {
     found
 }
 
-fn read_config_file() -> (i64, Vec<Temperature>, bool) {
-    let default_config: Vec<Temperature> = vec![];
-
-    let default_hard_cap = 85;
-    let mut hard_cap = Ok(85);
+fn read_config_file() -> (Vec<Temperature>, bool) {
+    let default_config: Vec<Temperature> = [
+        Temperature {
+            name: "level 0".to_string(),
+            low: 0,
+            high: 60,
+            speed: FanSpeed::Level0,
+        },
+        Temperature {
+            name: "level 0".to_string(),
+            low: 60,
+            high: 75,
+            speed: FanSpeed::Level2,
+        },
+        Temperature {
+            name: "level 0".to_string(),
+            low: 75,
+            high: 80,
+            speed: FanSpeed::Level3,
+        },
+        Temperature {
+            name: "level 0".to_string(),
+            low: 80,
+            high: 90,
+            speed: FanSpeed::Level4,
+        },
+        Temperature {
+            name: "level 0".to_string(),
+            low: 90,
+            high: 100,
+            speed: FanSpeed::Level7,
+        },
+    ]
+    .to_vec();
 
     let exists = Path::new(CONFIG_FILE).exists();
     let full_speed_supported = full_speed_supported();
@@ -129,27 +158,16 @@ fn read_config_file() -> (i64, Vec<Temperature>, bool) {
         if lines.is_ok() {
             for (i, line) in lines.unwrap().lines().enumerate() {
                 let data: Vec<&str> = line.split(",").collect();
-                if data.len() == 2 && data[0] == "cap" {
-                    hard_cap = data[1].parse::<i64>();
-                    if hard_cap.is_err() {
-                        eprintln!("Error with reading config values. Using default config");
-                        return (default_hard_cap, default_config, true);
-                    }
-                    println!(
-                        "[CFG] Fan speed 7 and full speed will be turned on when temperatures reach {}C ",
-                        hard_cap.clone().unwrap()
-                    );
-                }
                 if data.len() == 3 {
                     let low = data[0].parse::<i64>();
                     if low.is_err() {
                         eprintln!("Error with reading config values. Using default config");
-                        return (default_hard_cap, default_config, true);
+                        return (default_config, true);
                     }
                     let high = data[1].parse::<i64>();
                     if high.is_err() {
                         eprintln!("Error with reading config values. Using default config");
-                        return (default_hard_cap, default_config, true);
+                        return (default_config, true);
                     }
                     let mut speed = data[2];
                     if speed.contains(' ') {
@@ -183,18 +201,18 @@ fn read_config_file() -> (i64, Vec<Temperature>, bool) {
             }
         } else {
             eprintln!("Error opening file, using default config");
-            return (default_hard_cap, default_config, true);
+            return (default_config, true);
         }
         if config.is_empty() {
             eprintln!(
                 "Config file contains no valid temperature ranges. Using default config instead."
             );
-            return (default_hard_cap, default_config, true);
+            return (default_config, true);
         }
-        (hard_cap.unwrap(), config, false)
+        (config, false)
     } else {
         println!("[CFG] No config file found. Defaulting to application default config");
-        (default_hard_cap, default_config, true)
+        (default_config, true)
     }
 }
 
@@ -208,9 +226,8 @@ pub struct FanControl {
     pending_sleep: bool,
     pending_resume: bool,
     tick: i64,
-    hard_cap: i64,
-    default_config_flag: bool,
     temp_history: VecDeque<i64>,
+    stuck_tick: i64,
 }
 
 impl FanControl {
@@ -223,7 +240,7 @@ impl FanControl {
                 high: 100,
                 speed: FanSpeed::Auto,
             },
-            temperature_configs: config.1,
+            temperature_configs: config.0,
             run: true,
             first_tick: true,
             suspend_detector: SuspendDetector::new(),
@@ -231,9 +248,8 @@ impl FanControl {
             pending_sleep: false,
             pending_resume: false,
             tick: TICK_HYSTERESIS,
-            hard_cap: config.0, // The temperature cap before we turn on the highest fan speed
-            default_config_flag: config.2,
             temp_history: VecDeque::new(),
+            stuck_tick: 0,
         }
     }
 
@@ -246,6 +262,7 @@ impl FanControl {
     }
 
     pub fn set_pending_sleep_state(&mut self, new_state: bool) {
+        self.temp_history.clear();
         self.pending_sleep = new_state
     }
 
@@ -334,6 +351,10 @@ impl FanControl {
     pub fn set_fan_level(&mut self) -> SetFanStatus {
         let max_temp = self.get_max_temp();
 
+        if self.tick > 0 {
+            self.tick -= 1;
+        }
+
         if max_temp == TEMP_INVALID {
             let status = self.write_to_fan("level", "7");
             if status.is_err() {
@@ -350,42 +371,40 @@ impl FanControl {
         if count == TEMP_HISTORY_SIZE as i64 {
             self.temp_history.pop_front();
         }
+
         self.temp_history.push_back(max_temp);
 
-        if self.tick > 0 {
-            self.tick -= 1;
-        }
+        // NOTE: It is possible that a mean normalization is a little better at determing the
+        // correct temperature to compare with.
+        let avg_temp = (self.temp_history.iter().sum::<i64>() / count) - TEMP_OFFSET;
 
-        let current_speed = self.current_rule.speed;
-        let avg_temp = match self.temp_history.iter().sum::<i64>() {
-            0 => max_temp,
-            sum => (sum / count) - TEMP_OFFSET,
-        };
-
-        if self.default_config_flag {
-            self.default_set_fan_level(max_temp, avg_temp, current_speed)
-        } else {
-            self.user_set_fan_level(max_temp, avg_temp)
-        }
-    }
-
-    fn user_set_fan_level(&mut self, max_temp: i64, avg_temp: i64) -> SetFanStatus {
+        // TODO: For default configs, we want to raise the fan speed level when necessary, i.e.
+        // when we have been stuck on the same fan level for a while.
         for rule in self.temperature_configs.clone() {
-            if rule == self.current_rule {
-                if self.tick > 0 {
-                    return SetFanStatus::FanLevelNotSet;
-                }
+            if rule == self.current_rule && self.tick > 0 {
+                return SetFanStatus::FanLevelNotSet;
             }
             if rule.high >= avg_temp && rule.low <= avg_temp {
                 if self.current_rule != rule {
-                    if rule.speed == FanSpeed::Level7 && avg_temp < self.hard_cap {
-                        self.tick += 1;
-                        return SetFanStatus::FanLevelNotSet;
-                    }
-                    self.tick = TICK_HYSTERESIS;
                     self.current_rule = rule.clone();
+                    let mut value = convert_fan_speed(rule.speed);
+                    self.tick = TICK_HYSTERESIS;
 
-                    let value = convert_fan_speed(rule.speed);
+                    // Turn to fan speed 6 and wait to see if we really want to turn to fan speed
+                    // level 7 to remove any unncessary drastic fan spin up
+                    // Some newer devices and some higher end ThinkPads can have a difference of
+                    // >2000 RPM change from level 6 -> level 7
+                    if rule.speed == FanSpeed::Level7 {
+                        value = convert_fan_speed(FanSpeed::Level6);
+                        self.current_rule = Temperature {
+                            name: rule.name,
+                            low: rule.low,
+                            high: rule.high,
+                            speed: FanSpeed::Level6,
+                        };
+                        self.tick = FAST_TICK_HYSTERESIS;
+                    }
+
                     let status = self.write_to_fan("level", &value);
                     if status.is_err() {
                         return SetFanStatus::FanLevelError;
@@ -393,67 +412,13 @@ impl FanControl {
                     println!("[FAN] Temperature now {}C, fan set to {}", max_temp, value);
                     return SetFanStatus::FanLevelSet;
                 } else {
+                    self.stuck_tick += 1;
                     return SetFanStatus::FanLevelNotSet;
                 }
             }
         }
 
         SetFanStatus::FanLevelInvalid
-    }
-
-    fn default_set_fan_level(
-        &mut self,
-        max_temp: i64,
-        avg_temp: i64,
-        current_speed: FanSpeed,
-    ) -> SetFanStatus {
-        // TODO: Detect and change the fan speed level if the current level is not sufficient
-        if self.tick == 0 {
-            self.tick = TICK_HYSTERESIS;
-            if avg_temp <= 60 && current_speed != FanSpeed::Level0 {
-                return self.set_fan_level_helper("0", 0, 60, FanSpeed::Level0, max_temp);
-            } else if avg_temp > 60 && avg_temp <= 75 && current_speed != FanSpeed::Level2 {
-                return self.set_fan_level_helper("2", 60, 75, FanSpeed::Level2, max_temp);
-            } else if avg_temp > 75 && avg_temp <= 90 && current_speed != FanSpeed::Level3 {
-                return self.set_fan_level_helper("3", 75, 90, FanSpeed::Level3, max_temp);
-            } else if avg_temp > 90 {
-                // Set to fan speed level 6 before switching to fan speed level 7 to prevent some
-                // unnecessary drastic speed ups
-                if current_speed != FanSpeed::Level6 {
-                    self.tick = FAST_TICK_HYSTERESIS;
-                    return self.set_fan_level_helper("6", 90, 100, FanSpeed::Level6, max_temp);
-                } else {
-                    return self.set_fan_level_helper("7", 90, 100, FanSpeed::Level7, max_temp);
-                }
-            } else {
-                self.tick = TICK_HYSTERESIS;
-                return SetFanStatus::FanLevelNotSet;
-            }
-        }
-
-        SetFanStatus::FanLevelInvalid
-    }
-
-    fn set_fan_level_helper(
-        &mut self,
-        level: &str,
-        low: i64,
-        high: i64,
-        speed: FanSpeed,
-        max_temp: i64,
-    ) -> SetFanStatus {
-        let s = self.write_to_fan("level", level);
-        if s.is_err() {
-            return SetFanStatus::FanLevelError;
-        }
-        self.current_rule = Temperature {
-            name: format!("level {level}"),
-            low,
-            high,
-            speed,
-        };
-        println!("[FAN] Temperature now {max_temp}C, fan set to level {level}",);
-        SetFanStatus::FanLevelSet
     }
 
     pub fn set_fan_to_previous(&mut self) {
