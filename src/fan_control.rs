@@ -57,12 +57,18 @@ fn convert_fan_speed(fan_speed: FanSpeed) -> String {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Temperature {
     name: String,
     low: i64,
     high: i64,
     speed: FanSpeed,
+}
+
+impl PartialEq for Temperature {
+    fn eq(&self, other: &Self) -> bool {
+        self.speed == other.speed
+    }
 }
 
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -77,6 +83,12 @@ enum FanSpeed {
     Level7,
     FullSpeed,
     Auto,
+}
+
+impl PartialEq<Temperature> for FanSpeed {
+    fn eq(&self, other: &Temperature) -> bool {
+        *self == other.speed
+    }
 }
 
 #[derive(PartialEq)]
@@ -227,7 +239,6 @@ pub struct FanControl {
     pending_resume: bool,
     tick: i64,
     temp_history: VecDeque<i64>,
-    stuck_tick: i64,
 }
 
 impl FanControl {
@@ -249,7 +260,6 @@ impl FanControl {
             pending_resume: false,
             tick: TICK_HYSTERESIS,
             temp_history: VecDeque::new(),
-            stuck_tick: 0,
         }
     }
 
@@ -412,7 +422,6 @@ impl FanControl {
                     println!("[FAN] Temperature now {}C, fan set to {}", max_temp, value);
                     return SetFanStatus::FanLevelSet;
                 } else {
-                    self.stuck_tick += 1;
                     return SetFanStatus::FanLevelNotSet;
                 }
             }
