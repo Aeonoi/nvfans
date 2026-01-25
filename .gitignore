@@ -1,3 +1,5 @@
 /target
+/nvfans/target/
+/nvfans-daemon/target/
 
 test

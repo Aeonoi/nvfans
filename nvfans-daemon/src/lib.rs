@@ -5,7 +5,6 @@ use signal_hook::{
     iterator::Signals,
 };
 use std::{
-    env,
     process::exit,
     sync::mpsc::channel,
     thread::{self, sleep},
@@ -21,16 +20,7 @@ enum SignalState {
     Resume,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = env::args();
-
-    if args.len() != 1 {
-        println!("nvfans: Customizable ThinkPad fan daemon.\n\n");
-        println!("  [any argument]     Show this help\n\n");
-        println!("See the nvfans(1) man page for details.\n");
-        return Ok(());
-    }
-
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut fan_control = FanControl::new();
 
     let mut signals = Signals::new([SIGINT, SIGUSR1, SIGUSR2])?;
