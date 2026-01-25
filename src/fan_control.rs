@@ -122,6 +122,7 @@ fn full_speed_supported() -> bool {
     if content.find("full-speed").is_some() {
         found = true;
     }
+
     found
 }
 
@@ -134,25 +135,31 @@ fn read_config_file() -> (Vec<Temperature>, bool) {
             speed: FanSpeed::Level0,
         },
         Temperature {
-            name: "level 0".to_string(),
+            name: "level 2".to_string(),
             low: 60,
             high: 75,
             speed: FanSpeed::Level2,
         },
         Temperature {
-            name: "level 0".to_string(),
+            name: "level 3".to_string(),
             low: 75,
             high: 80,
             speed: FanSpeed::Level3,
         },
         Temperature {
-            name: "level 0".to_string(),
+            name: "level 4".to_string(),
             low: 80,
-            high: 90,
+            high: 85,
             speed: FanSpeed::Level4,
         },
         Temperature {
-            name: "level 0".to_string(),
+            name: "level 5".to_string(),
+            low: 85,
+            high: 90,
+            speed: FanSpeed::Level5,
+        },
+        Temperature {
+            name: "level 7".to_string(),
             low: 90,
             high: 100,
             speed: FanSpeed::Level7,
