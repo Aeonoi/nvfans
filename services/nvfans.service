@@ -3,7 +3,7 @@ Description=Dynamic fan control for ThinkPads
 Conflicts=thinkfan.service
 
 [Service]
-ExecStart=/usr/local/bin/nvfans
+ExecStart=/usr/local/bin/nvfans daemon
 Restart=always
 RestartSec=500ms
 
