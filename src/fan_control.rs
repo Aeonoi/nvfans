@@ -59,7 +59,6 @@ fn convert_fan_speed(fan_speed: FanSpeed) -> String {
 
 #[derive(Clone, Debug)]
 struct Temperature {
-    name: String,
     low: i64,
     high: i64,
     speed: FanSpeed,
@@ -129,37 +128,31 @@ fn full_speed_supported() -> bool {
 fn read_config_file() -> (Vec<Temperature>, bool) {
     let default_config: Vec<Temperature> = [
         Temperature {
-            name: "level 0".to_string(),
             low: 0,
             high: 60,
             speed: FanSpeed::Level0,
         },
         Temperature {
-            name: "level 2".to_string(),
             low: 60,
             high: 75,
             speed: FanSpeed::Level2,
         },
         Temperature {
-            name: "level 3".to_string(),
             low: 75,
             high: 80,
             speed: FanSpeed::Level3,
         },
         Temperature {
-            name: "level 4".to_string(),
             low: 80,
             high: 85,
             speed: FanSpeed::Level4,
         },
         Temperature {
-            name: "level 5".to_string(),
             low: 85,
             high: 90,
             speed: FanSpeed::Level5,
         },
         Temperature {
-            name: "level 7".to_string(),
             low: 90,
             high: 100,
             speed: FanSpeed::Level7,
@@ -175,7 +168,7 @@ fn read_config_file() -> (Vec<Temperature>, bool) {
         let mut config: Vec<Temperature> = vec![];
         let lines = read_to_string(CONFIG_FILE);
         if lines.is_ok() {
-            for (i, line) in lines.unwrap().lines().enumerate() {
+            for line in lines.unwrap().lines() {
                 let data: Vec<&str> = line.split(",").collect();
                 if data.len() == 3 {
                     let low = data[0].parse::<i64>();
@@ -211,7 +204,6 @@ fn read_config_file() -> (Vec<Temperature>, bool) {
                         high.clone().unwrap()
                     );
                     config.push(Temperature {
-                        name: format!("level {}", i),
                         low: low.unwrap(),
                         high: high.unwrap(),
                         speed: convert_number_to_fan_speed(speed),
@@ -253,7 +245,6 @@ impl FanControl {
         let config = read_config_file();
         FanControl {
             current_rule: Temperature {
-                name: "level 0".to_string(),
                 low: 0,
                 high: 100,
                 speed: FanSpeed::Auto,
@@ -416,10 +407,10 @@ impl FanControl {
                     // level 7 to remove any unncessary drastic fan spin up
                     // Some newer devices and some higher end ThinkPads can have a difference of
                     // >2000 RPM change from level 6 -> level 7
-                    if rule.speed == FanSpeed::Level7 {
+                    if rule.speed == FanSpeed::Level7 && self.current_rule.speed != FanSpeed::Level6
+                    {
                         value = convert_fan_speed(FanSpeed::Level6);
                         self.current_rule = Temperature {
-                            name: rule.name,
                             low: rule.low,
                             high: rule.high,
                             speed: FanSpeed::Level6,
