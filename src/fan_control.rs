@@ -399,7 +399,6 @@ impl FanControl {
             }
             if rule.high - stuck_penalty >= avg_temp && rule.low <= avg_temp {
                 if self.current_rule != rule {
-                    self.current_rule = rule.clone();
                     let mut value = convert_fan_speed(rule.speed);
                     self.tick = TICK_HYSTERESIS;
 
@@ -417,6 +416,8 @@ impl FanControl {
                         };
                         self.tick = FAST_TICK_HYSTERESIS;
                     }
+
+                    self.current_rule = rule.clone();
 
                     let status = self.write_to_fan("level", &value);
                     if status.is_err() {
