@@ -368,6 +368,8 @@ impl FanControl {
     pub fn set_fan_level(&mut self) -> SetFanStatus {
         let max_temp = self.get_max_temp();
 
+        let mut stuck_penalty = 0;
+
         if self.tick > 0 {
             self.tick -= 1;
         }
@@ -398,10 +400,13 @@ impl FanControl {
         // TODO: For default configs, we want to raise the fan speed level when necessary, i.e.
         // when we have been stuck on the same fan level for a while.
         for rule in self.temperature_configs.clone() {
-            if rule == self.current_rule && self.tick > 0 {
-                return SetFanStatus::FanLevelNotSet;
+            if rule == self.current_rule {
+                if self.tick > 0 {
+                    return SetFanStatus::FanLevelNotSet;
+                }
+                stuck_penalty = 3;
             }
-            if rule.high >= avg_temp && rule.low <= avg_temp {
+            if rule.high - stuck_penalty >= avg_temp && rule.low <= avg_temp {
                 if self.current_rule != rule {
                     self.current_rule = rule.clone();
                     let mut value = convert_fan_speed(rule.speed);
