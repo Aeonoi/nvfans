@@ -384,7 +384,7 @@ impl FanControl {
 
         self.temp_history.push_back(max_temp);
 
-        // NOTE: It is possible that a mean normalization is a little better at determing the
+        // NOTE: It is possible that a mean normalization is a little better at determining the
         // correct temperature to compare with.
         let avg_temp = (self.temp_history.iter().sum::<i64>() / count) - TEMP_OFFSET;
 
@@ -403,7 +403,7 @@ impl FanControl {
                     self.tick = TICK_HYSTERESIS;
 
                     // Turn to fan speed 6 and wait to see if we really want to turn to fan speed
-                    // level 7 to remove any unncessary drastic fan spin up
+                    // level 7 to remove any unnecessary drastic fan spin up
                     // Some newer devices and some higher end ThinkPads can have a difference of
                     // >2000 RPM change from level 6 -> level 7
                     if rule.speed == FanSpeed::Level7 && self.current_rule.speed != FanSpeed::Level6
