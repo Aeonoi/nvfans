@@ -1,0 +1,7 @@
+[package]
+name = "nvfans"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nvfans-daemon = { path = "../nvfans-daemon", default-features = false }
