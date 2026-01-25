@@ -1,4 +1,3 @@
-mod cpu_usage;
 mod fan_control;
 mod suspend_detector;
 use signal_hook::{

@@ -11,7 +11,7 @@ Before=hibernate.target
 Type=oneshot
 ExecStart=/usr/bin/kill -SIGUSR1 nvfans
 # Executing the signal handler races with sleep, so delay a bit. Also gives enough time for writing to the file.
-ExecStart=/usr/bin/sleep 1.5
+ExecStart=/usr/bin/sleep 2.0
 
 [Install]
 WantedBy=sleep.target
