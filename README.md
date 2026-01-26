@@ -2,7 +2,7 @@
 
 Dynamic and auto fan control daemon for ThinkPads that focuses on quietness and coolness.
 
-This was originally a port and was heavily inspiried by [zcfan](https://github.com/cdown/zcfan/tree/master).
+This was originally a port and was heavily inspired by [zcfan](https://github.com/cdown/zcfan/tree/master).
 
 ## Features
 
@@ -14,7 +14,7 @@ nvfans reads all temperature sensors present on the system.
 Below is the default config:
 
 ```
-thinkpad_acpi fan level      | Range low threshold      (C) | Range low threshold      (C) |
+thinkpad_acpi fan level      | Range low threshold      (C) | Range high threshold      (C) |
 -----------------------------|------------------------------|------------------------------|
 0                            | 0                            | 60                           |
 2                            | 60                           | 75                           |
@@ -31,7 +31,7 @@ To override these defaults, you can place a file at `/etc/nvfans.conf`. Example:
     90,100,7
     85,90,6
     80,85,5
-    75,70,4
+    75,80,4
     70,75,3
     65,70,2
     60,65,1

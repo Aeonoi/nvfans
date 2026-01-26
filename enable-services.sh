@@ -2,7 +2,7 @@
 
 if [ "$EUID" -ne 0 ]; then
   echo "Please run this script as root."
-  exit
+  exit 1
 fi
 
 SERVICE_DIR="/usr/local/lib/systemd/system/"
@@ -11,9 +11,9 @@ if [ ! -f "$SERVICE_DIR"/nvfans.service ] && \
     [ ! -f "$SERVICE_DIR"/nvfans-sleep.service ] && \
     [ ! -f "$SERVICE_DIR"/nvfans-resume.service ]; then
 
-    echo "Services does not exist!"
+    echo "Service files do not exist!"
     echo "Please install first!"
-    exit
+    exit 1
 fi
 
 echo "Checking if services are running"
@@ -31,14 +31,14 @@ if [ "$NVFANS_STATUS" = "active" ]; then
 fi
 
 if [ "$NVFANS_SLEEP_STATUS" = "active" ]; then
-    echo "nvfans is currently active."
+    echo "nvfans-sleep is currently active."
     echo "Disabling nvfans-sleep"
     systemctl disable --now nvfans-sleep
     echo
 fi
 
 if [ "$NVFANS_RESUME_STATUS" = "active" ]; then
-    echo "nvfans is currently active."
+    echo "nvfans-resume is currently active."
     echo "Disabling nvfans-resume"
     systemctl disable --now nvfans-resume
     echo

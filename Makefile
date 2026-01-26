@@ -12,14 +12,14 @@ build-release:
 install: 
 	install -Dm755 target/release/nvfans $(DESTDIR)$(PREFIX)/bin/nvfans
 	# Services
-	install -Dm644 services/nvfans.service 	      $(SYSTEMD_DIR)
-	install -Dm644 services/nvfans-sleep.service  $(SYSTEMD_DIR)
-	install -Dm644 services/nvfans-resume.service $(SYSTEMD_DIR)
+	install -Dm644 services/nvfans.service 	      $(DESTDIR)$(SYSTEMD_DIR)
+	install -Dm644 services/nvfans-sleep.service  $(DESTDIR)$(SYSTEMD_DIR)
+	install -Dm644 services/nvfans-resume.service $(DESTDIR)$(SYSTEMD_DIR)
 
 .PHONY: uninstall
 uninstall:
 	rm $(DESTDIR)$(PREFIX)/bin/nvfans
-	rm $(SYSTEMD_DIR)$(NVFANS_SERVICE)
-	rm $(SYSTEMD_DIR)$(NVFANS_SLEEP_SERVICE)
-	rm $(SYSTEMD_DIR)$(NVFANS_RESUME_SERVICE)
+	rm $(DESTDIR)$(SYSTEMD_DIR)$(NVFANS_SERVICE)
+	rm $(DESTDIR)$(SYSTEMD_DIR)$(NVFANS_SLEEP_SERVICE)
+	rm $(DESTDIR)$(SYSTEMD_DIR)$(NVFANS_RESUME_SERVICE)
 
