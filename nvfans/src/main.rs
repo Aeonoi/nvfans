@@ -1,6 +1,6 @@
-use std::env;
+use std::{env, error::Error};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args().collect();
 
     if args.len() == 1 {
@@ -8,14 +8,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let command = args[1].clone();
+
     match command.as_str() {
-        "daemon" => nvfans_daemon::run()?,
+        "daemon" => nvfans_daemon::run(),
+        "client" => nvfans_client::run(),
         _ => {
             eprintln!("Unrecognized command: {command}");
             eprintln!("Usage: nvfans <command>");
             return Err("Unrecognized command".into());
         }
     }
-
-    Ok(())
 }

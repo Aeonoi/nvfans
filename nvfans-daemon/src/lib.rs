@@ -1,17 +1,22 @@
 mod fan_control;
+mod server;
 mod suspend_detector;
 use signal_hook::{
     consts::{SIGINT, SIGUSR1, SIGUSR2},
     iterator::Signals,
 };
 use std::{
+    error::Error,
     process::exit,
     sync::mpsc::channel,
     thread::{self, sleep},
     time::Duration,
 };
 
-use crate::fan_control::{FanControl, SetFanStatus};
+use crate::{
+    fan_control::{FanControl, SetFanStatus},
+    server::{Request, make_connection},
+};
 
 #[derive(Debug)]
 enum SignalState {
@@ -20,27 +25,34 @@ enum SignalState {
     Resume,
 }
 
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run() -> Result<(), Box<dyn Error>> {
     let mut fan_control = FanControl::new();
 
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
     let mut signals = Signals::new([SIGINT, SIGUSR1, SIGUSR2])?;
-    let (sender, receiver) = channel();
+    let (signal_sender, signal_receiver) = channel();
+    let (server_sender, server_receiver) = channel::<Request>();
 
     thread::spawn(move || {
         for sig in signals.forever() {
             if sig == SIGINT {
-                sender.send(SignalState::Interrupt).unwrap();
+                signal_sender.send(SignalState::Interrupt).unwrap();
             } else if sig == SIGUSR1 {
-                sender.send(SignalState::Sleep).unwrap();
+                signal_sender.send(SignalState::Sleep).unwrap();
             } else if sig == SIGUSR2 {
-                sender.send(SignalState::Resume).unwrap();
+                signal_sender.send(SignalState::Resume).unwrap();
             }
         }
     });
 
+    rt.spawn(async {
+        let _ = make_connection().await;
+    });
+
     let mut fan_control_enabled = true;
     while fan_control.get_run_state() {
-        let response = receiver.try_recv();
+        let response = signal_receiver.try_recv();
         if response.is_ok() {
             match response.unwrap() {
                 SignalState::Sleep => {
