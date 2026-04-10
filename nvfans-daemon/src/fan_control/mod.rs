@@ -1,5 +1,6 @@
 use crate::suspend_detector::SuspendDetector;
 use glob::glob;
+use nvfans_common::{FanSpeed, Temperature};
 use std::{
     collections::VecDeque,
     fs::{File, read_to_string},
@@ -54,39 +55,6 @@ fn convert_fan_speed(fan_speed: FanSpeed) -> String {
         FanSpeed::Level7 => String::from("7"),
         FanSpeed::FullSpeed => String::from("full-speed"),
         FanSpeed::Auto => String::from("auto"),
-    }
-}
-
-#[derive(Clone, Debug)]
-struct Temperature {
-    low: i64,
-    high: i64,
-    speed: FanSpeed,
-}
-
-impl PartialEq for Temperature {
-    fn eq(&self, other: &Self) -> bool {
-        self.speed == other.speed
-    }
-}
-
-#[derive(PartialEq, Copy, Clone, Debug)]
-enum FanSpeed {
-    Level0,
-    Level1,
-    Level2,
-    Level3,
-    Level4,
-    Level5,
-    Level6,
-    Level7,
-    FullSpeed,
-    Auto,
-}
-
-impl PartialEq<Temperature> for FanSpeed {
-    fn eq(&self, other: &Temperature) -> bool {
-        *self == other.speed
     }
 }
 

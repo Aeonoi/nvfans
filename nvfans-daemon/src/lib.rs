@@ -1,3 +1,4 @@
+mod command;
 mod fan_control;
 mod server;
 mod suspend_detector;
@@ -5,17 +6,14 @@ use signal_hook::{
     consts::{SIGINT, SIGUSR1, SIGUSR2},
     iterator::Signals,
 };
-use std::{
-    error::Error,
-    process::exit,
-    sync::mpsc::channel,
-    thread::{self, sleep},
-    time::Duration,
-};
+use std::{error::Error, process::exit, thread::sleep, time::Duration};
 
+use tokio::sync::mpsc::channel;
+
+use nvfans_common::{Request, Response};
 use crate::{
     fan_control::{FanControl, SetFanStatus},
-    server::{Request, make_connection},
+    server::DaemonServer,
 };
 
 #[derive(Debug)]
@@ -31,23 +29,26 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     let mut signals = Signals::new([SIGINT, SIGUSR1, SIGUSR2])?;
-    let (signal_sender, signal_receiver) = channel();
-    let (server_sender, server_receiver) = channel::<Request>();
+    let (signal_sender, mut signal_receiver) = channel(64);
+    // 64 may not be enough considering the struct size?
+    let (server_sender, server_receiver) = channel::<Request>(64);
+    let (client_sender, client_receiver) = channel::<Response>(64);
 
-    thread::spawn(move || {
+    rt.spawn(async move {
         for sig in signals.forever() {
             if sig == SIGINT {
-                signal_sender.send(SignalState::Interrupt).unwrap();
+                signal_sender.send(SignalState::Interrupt).await.unwrap();
             } else if sig == SIGUSR1 {
-                signal_sender.send(SignalState::Sleep).unwrap();
+                signal_sender.send(SignalState::Sleep).await.unwrap();
             } else if sig == SIGUSR2 {
-                signal_sender.send(SignalState::Resume).unwrap();
+                signal_sender.send(SignalState::Resume).await.unwrap();
             }
         }
     });
 
     rt.spawn(async {
-        let _ = make_connection().await;
+        let daemon_server = DaemonServer::new(server_sender, server_receiver);
+        let _ = daemon_server.make_connection().await;
     });
 
     let mut fan_control_enabled = true;

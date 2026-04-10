@@ -2,6 +2,6 @@
 resolver = "2"
 members = [
     "nvfans",
-    "nvfans-client",
+    "nvfans-client", "nvfans-common",
     "nvfans-daemon",
 ]

@@ -10,14 +10,6 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
         if let Ok(client) = Client::new().await {
             println!("Connected!");
-            let name = "Unix Socket";
-            println!("\nSending SayHello request with name: '{}'", name);
-            match client.say_hello(name).await {
-                Ok(response) => println!("Daemon responded: {:?}", response),
-                Err(e) => eprintln!("Error: {}", e),
-            }
-
-            // --- Second request ---
             println!("\nSending GetStatus request...");
             match client.get_status().await {
                 Ok(response) => println!("Daemon responded: {:?}", response),

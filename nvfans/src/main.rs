@@ -1,5 +1,7 @@
 use std::{env, error::Error};
 
+const DAEMON_COMMAND: [&str; 2] = ["daemon", "client"];
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args().collect();
 
@@ -15,6 +17,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         _ => {
             eprintln!("Unrecognized command: {command}");
             eprintln!("Usage: nvfans <command>");
+            eprintln!("Commands:");
+            for cmd in DAEMON_COMMAND.iter() {
+                eprintln!("  - {cmd}");
+            }
             return Err("Unrecognized command".into());
         }
     }

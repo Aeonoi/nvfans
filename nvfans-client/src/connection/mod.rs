@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
-use std::{error::Error, path::PathBuf, str::FromStr};
+use nvfans_common::{Request, Response};
+use std::error::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
@@ -7,19 +7,6 @@ use tokio::{
 };
 
 const SOCKET_PATH: &str = "/tmp/nvfans.sock";
-// These definitions should be identical to the ones in the daemon
-#[derive(Serialize, Deserialize, Debug)]
-pub enum Request {
-    SayHello { name: String },
-    GetStatus,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum Response {
-    Hello { message: String },
-    Status { temperature: f32, fan_speed: u32 },
-    Error { msg: String },
-}
 
 /// A client for the nvfans daemon.
 ///
@@ -28,10 +15,6 @@ pub struct Client {
     // We use a Mutex to allow for safe concurrent access to the stream
     // from multiple async tasks if needed.
     stream: Mutex<UnixStream>,
-}
-
-pub fn get_socket_path() -> PathBuf {
-    PathBuf::from_str(SOCKET_PATH).unwrap()
 }
 
 impl Client {
@@ -62,20 +45,13 @@ impl Client {
 
         // Deserialize and return the response
         let response = serde_json::from_str(&line)?;
+        println!("Received response: {:?}", response);
         Ok(response)
-    }
-
-    /// Sends a `SayHello` request.
-    pub async fn say_hello(&self, name: &str) -> Result<Response, Box<dyn Error + Send + Sync>> {
-        let request = Request::SayHello {
-            name: name.to_string(),
-        };
-        self.send_request(request).await
     }
 
     /// Sends a `GetStatus` request.
     pub async fn get_status(&self) -> Result<Response, Box<dyn Error + Send + Sync>> {
-        let request = Request::GetStatus;
+        let request = Request::GetFanSpeedStatus;
         self.send_request(request).await
     }
 }
