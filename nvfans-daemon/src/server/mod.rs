@@ -1,26 +1,21 @@
 pub const SOCKET_PATH: &str = "/tmp/nvfans.sock";
 
+use crate::fan_control::FanControl;
 use nvfans_common::{FanSpeed, Request, Response, Temperature};
 use std::error::Error;
+use std::sync::{Arc, Mutex};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
-    sync::mpsc::{Receiver, Sender},
 };
 
-use crate::fan_control::FanControl;
-
 pub struct DaemonServer {
-    sender: Sender<Request>,
-    receiver: Receiver<Request>,
+    fan_control: Arc<Mutex<FanControl>>,
 }
 
 impl DaemonServer {
-    pub fn new(sender: Sender<Request>, receiver: Receiver<Request>) -> DaemonServer {
-        DaemonServer {
-            sender: sender,
-            receiver,
-        }
+    pub fn new(fan_control: Arc<Mutex<FanControl>>) -> DaemonServer {
+        DaemonServer { fan_control }
     }
 
     pub async fn make_connection(&self) -> Result<(), Box<dyn Error>> {
@@ -38,9 +33,11 @@ impl DaemonServer {
             match listener.accept().await {
                 Ok((stream, _addr)) => {
                     println!("Accepted new client connection.");
+                    // Clone the Arc to pass to the client task
+                    let fan_control_clone = Arc::clone(&self.fan_control);
                     // Spawn a new task to handle this client concurrently.
                     tokio::spawn(async move {
-                        if let Err(e) = Self::handle_client(stream).await {
+                        if let Err(e) = Self::handle_client(stream, fan_control_clone).await {
                             eprintln!("Error handling client: {}", e);
                         }
                     });
@@ -52,7 +49,10 @@ impl DaemonServer {
         }
     }
 
-    async fn handle_client(stream: UnixStream) -> Result<(), Box<dyn Error>> {
+    async fn handle_client(
+        stream: UnixStream,
+        fan_control: Arc<Mutex<FanControl>>,
+    ) -> Result<(), Box<dyn Error>> {
         let (reader, mut writer) = tokio::io::split(stream);
         let mut reader = BufReader::new(reader);
         let mut line = String::new();
@@ -84,13 +84,18 @@ impl DaemonServer {
 
             // Process the request and create a response
             let response = match request {
-                Request::GetFanSpeedStatus => Response::FanSpeedStatus {
-                    temperature: Temperature {
-                        low: 68,
-                        high: 100,
-                        speed: FanSpeed::Level0,
-                    },
-                },
+                Request::GetFanSpeedStatus => {
+                    // Lock the FanControl to get current status
+                    let mut fc = fan_control.lock().expect("Failed to lock FanControl");
+                    let current_temp = fc.get_max_temp();
+                    Response::FanSpeedStatus {
+                        temperature: Temperature {
+                            low: 0, // Placeholder
+                            high: current_temp,
+                            speed: FanSpeed::Level0, // Placeholder
+                        },
+                    }
+                }
             };
 
             // Serialize the response and send it back to the client
