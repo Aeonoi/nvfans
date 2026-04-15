@@ -1,8 +1,8 @@
-pub const SOCKET_PATH: &str = "/tmp/nvfans.sock";
-
 use crate::fan_control::FanControl;
-use nvfans_common::{FanSpeed, Request, Response, Temperature};
+use nvfans_common::{socket_path, FanSpeed, Request, Response, Temperature};
 use std::error::Error;
+use std::os::unix::net::UnixStream as StdUnixStream;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -19,14 +19,30 @@ impl DaemonServer {
     }
 
     pub async fn make_connection(&self) -> Result<(), Box<dyn Error>> {
-        // Clean up the socket file if it already exists
-        if std::fs::metadata(SOCKET_PATH).is_ok() {
-            println!("Removing existing socket file...");
-            std::fs::remove_file(SOCKET_PATH)?;
+        let socket = socket_path();
+
+        // Ensure parent directory exists
+        if let Some(parent) = socket.parent() {
+            std::fs::create_dir_all(parent)?;
         }
 
-        let listener = UnixListener::bind(SOCKET_PATH)?;
-        println!("Daemon listening on {}", SOCKET_PATH);
+        // Check if another daemon is already listening on the socket
+        if Path::new(&socket).exists() {
+            match StdUnixStream::connect(&socket) {
+                Ok(_) => {
+                    // Connected successfully, so another daemon is running
+                    return Err("Another daemon is already running".into());
+                }
+                Err(_) => {
+                    // Connection failed, socket is stale - safe to remove
+                    println!("Removing stale socket file...");
+                    std::fs::remove_file(&socket)?;
+                }
+            }
+        }
+
+        let listener = UnixListener::bind(&socket)?;
+        println!("Daemon listening on {}", socket.display());
 
         loop {
             // Wait for a new client to connect

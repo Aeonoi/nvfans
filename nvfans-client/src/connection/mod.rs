@@ -1,12 +1,10 @@
-use nvfans_common::{Request, Response};
+use nvfans_common::{socket_path, Request, Response};
 use std::error::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
     sync::Mutex,
 };
-
-const SOCKET_PATH: &str = "/tmp/nvfans.sock";
 
 /// A client for the nvfans daemon.
 ///
@@ -20,7 +18,9 @@ pub struct Client {
 impl Client {
     /// Connects to the nvfans daemon socket.
     pub async fn new() -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let stream = UnixStream::connect(SOCKET_PATH).await?;
+        let socket = socket_path();
+        let stream = UnixStream::connect(&socket).await
+            .map_err(|e| format!("Failed to connect to {}: {}", socket.display(), e))?;
         Ok(Self {
             stream: Mutex::new(stream),
         })
