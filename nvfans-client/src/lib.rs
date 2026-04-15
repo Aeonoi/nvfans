@@ -15,6 +15,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                 Ok(response) => println!("Daemon responded: {:?}", response),
                 Err(e) => eprintln!("Error: {}", e),
             }
+
+            match client.set_fan_speed(String::from("1")).await {
+                Ok(response) => println!("Daemon responded: {:?}", response),
+                Err(e) => eprintln!("Error: {}", e),
+            }
         }
     });
 

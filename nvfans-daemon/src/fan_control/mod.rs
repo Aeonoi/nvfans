@@ -324,6 +324,10 @@ impl FanControl {
         millic_to_c(max_temp)
     }
 
+    pub fn get_current_rule(&mut self) -> Temperature {
+        self.current_rule.clone()
+    }
+
     pub fn set_fan_level(&mut self) -> SetFanStatus {
         let max_temp = self.get_max_temp();
 

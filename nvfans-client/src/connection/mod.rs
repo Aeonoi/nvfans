@@ -1,4 +1,4 @@
-use nvfans_common::{socket_path, Request, Response};
+use nvfans_common::{Request, Response, socket_path};
 use std::error::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -19,7 +19,8 @@ impl Client {
     /// Connects to the nvfans daemon socket.
     pub async fn new() -> Result<Self, Box<dyn Error + Send + Sync>> {
         let socket = socket_path();
-        let stream = UnixStream::connect(&socket).await
+        let stream = UnixStream::connect(&socket)
+            .await
             .map_err(|e| format!("Failed to connect to {}: {}", socket.display(), e))?;
         Ok(Self {
             stream: Mutex::new(stream),
@@ -52,6 +53,14 @@ impl Client {
     /// Sends a `GetStatus` request.
     pub async fn get_status(&self) -> Result<Response, Box<dyn Error + Send + Sync>> {
         let request = Request::GetFanSpeedStatus;
+        self.send_request(request).await
+    }
+
+    pub async fn set_fan_speed(
+        &self,
+        speed: String,
+    ) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::SetFanSpeed { speed };
         self.send_request(request).await
     }
 }

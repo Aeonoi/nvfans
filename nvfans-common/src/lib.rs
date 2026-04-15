@@ -46,10 +46,12 @@ impl PartialEq<Temperature> for FanSpeed {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
     GetFanSpeedStatus,
+    SetFanSpeed { speed: String }, // String in the format of a number 0-7, "full", or "auto"
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
     FanSpeedStatus { temperature: Temperature },
+    Success { msg: String },
     Error { msg: String },
 }

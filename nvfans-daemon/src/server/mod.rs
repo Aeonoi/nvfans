@@ -1,5 +1,5 @@
 use crate::fan_control::FanControl;
-use nvfans_common::{socket_path, FanSpeed, Request, Response, Temperature};
+use nvfans_common::{Request, Response, Temperature, socket_path};
 use std::error::Error;
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::Path;
@@ -103,13 +103,27 @@ impl DaemonServer {
                 Request::GetFanSpeedStatus => {
                     // Lock the FanControl to get current status
                     let mut fc = fan_control.lock().expect("Failed to lock FanControl");
-                    let current_temp = fc.get_max_temp();
+                    let current_rule = fc.get_current_rule();
                     Response::FanSpeedStatus {
                         temperature: Temperature {
-                            low: 0, // Placeholder
-                            high: current_temp,
-                            speed: FanSpeed::Level0, // Placeholder
+                            low: current_rule.low,
+                            high: current_rule.high,
+                            speed: current_rule.speed,
                         },
+                    }
+                }
+                Request::SetFanSpeed { speed } => {
+                    // Lock the FanControl to set the new speed
+                    let mut fc = fan_control.lock().expect("Failed to lock FanControl");
+                    let result = fc.write_to_fan("level", &speed);
+                    if let Err(e) = result {
+                        Response::Error {
+                            msg: format!("Failed to set fan speed: {}", e),
+                        }
+                    } else {
+                        Response::Success {
+                            msg: format!("Fan speed set to {}", speed),
+                        }
                     }
                 }
             };
