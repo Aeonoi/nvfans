@@ -46,11 +46,9 @@ impl Client {
 
         // Deserialize and return the response
         let response = serde_json::from_str(&line)?;
-        println!("Received response: {:?}", response);
         Ok(response)
     }
 
-    /// Sends a `GetStatus` request.
     pub async fn get_status(&self) -> Result<Response, Box<dyn Error + Send + Sync>> {
         let request = Request::GetFanSpeedStatus;
         self.send_request(request).await
@@ -61,6 +59,19 @@ impl Client {
         speed: String,
     ) -> Result<Response, Box<dyn Error + Send + Sync>> {
         let request = Request::SetFanSpeed { speed };
+        self.send_request(request).await
+    }
+
+    pub async fn get_config(&self) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::GetConfig;
+        self.send_request(request).await
+    }
+
+    pub async fn set_config(
+        &self,
+        config: Vec<nvfans_common::Temperature>,
+    ) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::SetConfig { config };
         self.send_request(request).await
     }
 }

@@ -3,7 +3,7 @@ use glob::glob;
 use nvfans_common::{FanSpeed, Temperature};
 use std::{
     collections::VecDeque,
-    fs::{File, read_to_string},
+    fs::{read_to_string, File},
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     process::exit,
@@ -326,6 +326,34 @@ impl FanControl {
 
     pub fn get_current_rule(&mut self) -> Temperature {
         self.current_rule.clone()
+    }
+
+    pub fn get_config(&mut self) -> Vec<Temperature> {
+        self.temperature_configs.clone()
+    }
+
+    pub fn set_config(&mut self, new_config: Vec<Temperature>) -> std::io::Result<()> {
+        // Update the in-memory config
+        self.temperature_configs = new_config.clone();
+
+        // Write the new config to the config file
+        let mut file = File::options()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(CONFIG_FILE)?;
+
+        for rule in &new_config {
+            let line = format!(
+                "{},{},{}",
+                rule.low,
+                rule.high,
+                convert_fan_speed(rule.speed)
+            );
+            writeln!(file, "{}", line)?;
+        }
+
+        Ok(())
     }
 
     pub fn set_fan_level(&mut self) -> SetFanStatus {

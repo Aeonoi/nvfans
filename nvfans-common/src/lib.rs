@@ -47,11 +47,14 @@ impl PartialEq<Temperature> for FanSpeed {
 pub enum Request {
     GetFanSpeedStatus,
     SetFanSpeed { speed: String }, // String in the format of a number 0-7, "full", or "auto"
+    GetConfig,
+    SetConfig { config: Vec<Temperature> },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
     FanSpeedStatus { temperature: Temperature },
+    ConfigResponse { config: Vec<Temperature> },
     Success { msg: String },
     Error { msg: String },
 }

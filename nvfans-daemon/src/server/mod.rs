@@ -99,32 +99,48 @@ impl DaemonServer {
             println!("Received request: {:?}", request);
 
             // Process the request and create a response
-            let response = match request {
-                Request::GetFanSpeedStatus => {
-                    // Lock the FanControl to get current status
-                    let mut fc = fan_control.lock().expect("Failed to lock FanControl");
-                    let current_rule = fc.get_current_rule();
-                    Response::FanSpeedStatus {
-                        temperature: Temperature {
-                            low: current_rule.low,
-                            high: current_rule.high,
-                            speed: current_rule.speed,
-                        },
+            // Lock is scoped to ensure it drops before any await points
+            let response = {
+                let mut fc = fan_control.lock().expect("Failed to lock FanControl");
+                match request {
+                    Request::GetFanSpeedStatus => {
+                        let current_rule = fc.get_current_rule();
+                        Response::FanSpeedStatus {
+                            temperature: Temperature {
+                                low: current_rule.low,
+                                high: current_rule.high,
+                                speed: current_rule.speed,
+                            },
+                        }
                     }
+                    Request::SetFanSpeed { speed } => {
+                        let result = fc.write_to_fan("level", &speed);
+                        if let Err(e) = result {
+                            Response::Error {
+                                msg: format!("Failed to set fan speed: {}", e),
+                            }
+                        } else {
+                            Response::Success {
+                                msg: format!("Fan speed set to {}", speed),
+                            }
+                        }
+                    }
+                    Request::GetConfig => {
+                        let config = fc.get_config();
+                        Response::ConfigResponse {
+                            config: config.clone(),
+                        }
+                    }
+            Request::SetConfig { config } => {
+                match fc.set_config(config.clone()) {
+                    Ok(()) => Response::Success {
+                        msg: "Configuration updated successfully".to_string(),
+                    },
+                    Err(e) => Response::Error {
+                        msg: format!("Failed to write config: {}", e),
+                    },
                 }
-                Request::SetFanSpeed { speed } => {
-                    // Lock the FanControl to set the new speed
-                    let mut fc = fan_control.lock().expect("Failed to lock FanControl");
-                    let result = fc.write_to_fan("level", &speed);
-                    if let Err(e) = result {
-                        Response::Error {
-                            msg: format!("Failed to set fan speed: {}", e),
-                        }
-                    } else {
-                        Response::Success {
-                            msg: format!("Fan speed set to {}", speed),
-                        }
-                    }
+            }
                 }
             };
 
