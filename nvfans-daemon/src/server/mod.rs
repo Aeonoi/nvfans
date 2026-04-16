@@ -139,10 +139,10 @@ impl DaemonServer {
                             msg: format!("Failed to write config: {}", e),
                         },
                     },
-                    Request::GetFanRPM => {
-                        let rpm = get_fan_rpm();
-                        Response::FanSpeedRPM { rpm }
-                    }
+            Request::GetFanRPM => {
+                let rpm = get_fan_rpm();
+                Response::FanSpeedRpm { rpm }
+            }
                 }
             };
 

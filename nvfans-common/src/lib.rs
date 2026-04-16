@@ -56,7 +56,7 @@ pub enum Request {
 pub enum Response {
     FanSpeedStatus { temperature: Temperature },
     ConfigResponse { config: Vec<Temperature> },
-    FanSpeedRPM { rpm: i64 },
+    FanSpeedRpm { rpm: i64 },
     Success { msg: String },
     Error { msg: String },
 }
