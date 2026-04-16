@@ -83,6 +83,13 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         };
         println!("Daemon responded: {:?}\n", reset_response);
 
+        let rpm_response = match client.get_fan_rpm().await {
+            Ok(response) => response,
+            Err(e) => return Err(format!("Failed to get fan RPM: {}", e).into()),
+        };
+
+        println!("Daemon responded: {:?}\n", rpm_response);
+
         Ok(())
     })
 }

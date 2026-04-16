@@ -3,7 +3,7 @@ use glob::glob;
 use nvfans_common::{FanSpeed, Temperature};
 use std::{
     collections::VecDeque,
-    fs::{read_to_string, File},
+    fs::{File, read_to_string},
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     process::exit,
@@ -24,6 +24,33 @@ pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
 
 const fn millic_to_c(temp: i64) -> i64 {
     temp / 1000
+}
+
+pub fn get_fan_rpm() -> i64 {
+    let f = File::open(FAN_CONTROL_FILE);
+    if f.is_err() {
+        return TEMP_INVALID;
+    }
+    let mut data = vec![];
+
+    if f.is_ok() {
+        let _ = f.unwrap().read_to_end(&mut data);
+    }
+
+    let content = String::from_utf8_lossy(&data);
+
+    for line in content.lines() {
+        if line.contains("speed") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                if let Ok(rpm) = parts[1].parse::<i64>() {
+                    return rpm;
+                }
+            }
+        }
+    }
+
+    TEMP_INVALID
 }
 
 fn convert_number_to_fan_speed(value: &str) -> FanSpeed {

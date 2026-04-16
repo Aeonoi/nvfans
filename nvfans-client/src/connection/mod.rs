@@ -74,4 +74,15 @@ impl Client {
         let request = Request::SetConfig { config };
         self.send_request(request).await
     }
+
+    pub async fn get_fan_rpm(&self) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::GetFanRPM;
+        self.send_request(request).await
+    }
+
+    pub async fn close(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut locked_stream = self.stream.lock().await;
+        locked_stream.shutdown().await?;
+        Ok(())
+    }
 }

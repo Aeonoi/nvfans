@@ -1,4 +1,4 @@
-use crate::fan_control::FanControl;
+use crate::fan_control::{FanControl, get_fan_rpm};
 use nvfans_common::{Request, Response, Temperature, socket_path};
 use std::error::Error;
 use std::os::unix::net::UnixStream as StdUnixStream;
@@ -131,16 +131,18 @@ impl DaemonServer {
                             config: config.clone(),
                         }
                     }
-            Request::SetConfig { config } => {
-                match fc.set_config(config.clone()) {
-                    Ok(()) => Response::Success {
-                        msg: "Configuration updated successfully".to_string(),
+                    Request::SetConfig { config } => match fc.set_config(config.clone()) {
+                        Ok(()) => Response::Success {
+                            msg: "Configuration updated successfully".to_string(),
+                        },
+                        Err(e) => Response::Error {
+                            msg: format!("Failed to write config: {}", e),
+                        },
                     },
-                    Err(e) => Response::Error {
-                        msg: format!("Failed to write config: {}", e),
-                    },
-                }
-            }
+                    Request::GetFanRPM => {
+                        let rpm = get_fan_rpm();
+                        Response::FanSpeedRPM { rpm }
+                    }
                 }
             };
 
