@@ -35,7 +35,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let (signal_sender, mut signal_receiver) = channel(64);
 
     // Spawn signal handler task
-    rt.spawn(async move {
+    tokio::task::spawn_blocking(async move {
         for sig in signals.forever() {
             if sig == SIGINT {
                 signal_sender.send(SignalState::Interrupt).await.unwrap();

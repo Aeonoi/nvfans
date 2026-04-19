@@ -3,11 +3,11 @@ use std::path::PathBuf;
 
 /// Returns the socket path following XDG conventions.
 /// Prefers `$XDG_RUNTIME_DIR/nvfans.sock` for user services,
-/// falls back to `/tmp/nvfans.sock` if not available.
+/// falls back to `/run/nvfans.sock` if not available.
 pub fn socket_path() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(|dir| PathBuf::from(dir).join("nvfans.sock"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/nvfans.sock"))
+        .unwrap_or_else(|| PathBuf::from("/run/nvfans.sock"))
 }
 
 #[derive(PartialEq, Copy, Clone, Debug, Serialize, Deserialize)]

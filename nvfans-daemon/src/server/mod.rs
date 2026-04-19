@@ -1,7 +1,6 @@
 use crate::fan_control::{FanControl, get_fan_rpm};
 use nvfans_common::{Request, Response, Temperature, socket_path};
 use std::error::Error;
-use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::{
@@ -28,7 +27,7 @@ impl DaemonServer {
 
         // Check if another daemon is already listening on the socket
         if Path::new(&socket).exists() {
-            match StdUnixStream::connect(&socket) {
+            match tokio::net::UnixStream::connect(&socket) {
                 Ok(_) => {
                     // Connected successfully, so another daemon is running
                     return Err("Another daemon is already running".into());
@@ -139,10 +138,10 @@ impl DaemonServer {
                             msg: format!("Failed to write config: {}", e),
                         },
                     },
-            Request::GetFanRPM => {
-                let rpm = get_fan_rpm();
-                Response::FanSpeedRpm { rpm }
-            }
+                    Request::GetFanRPM => {
+                        let rpm = get_fan_rpm();
+                        Response::FanSpeedRpm { rpm }
+                    }
                 }
             };
 
