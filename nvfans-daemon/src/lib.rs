@@ -64,7 +64,10 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let fan_control_server = Arc::clone(&fan_control);
     rt.spawn(async move {
         let daemon_server = DaemonServer::new(fan_control_server);
-        let _ = daemon_server.make_connection().await;
+        if let Err(err) = daemon_server.make_connection().await {
+            eprintln!("[ERROR] Failed to start daemon server: {err}");
+            exit(1);
+        }
     });
 
     let mut fan_control_enabled = true;
