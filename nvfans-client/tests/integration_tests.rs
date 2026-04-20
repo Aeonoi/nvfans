@@ -35,7 +35,7 @@ async fn test_set_fan_speed() {
     let client = create_test_client().await;
 
     let response = client
-        .set_fan_speed(String::from("1"))
+        .set_fan_speed(0, 100, FanSpeed::Level1)
         .await
         .expect("Failed to set fan speed");
 
@@ -49,7 +49,7 @@ async fn test_set_fan_speed() {
     }
 
     // Reset to auto
-    let _ = client.set_fan_speed(String::from("auto")).await;
+    let _ = client.set_fan_speed(0, 100, FanSpeed::Auto).await;
 }
 
 #[tokio::test]

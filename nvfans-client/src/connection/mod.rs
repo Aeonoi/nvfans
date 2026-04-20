@@ -1,4 +1,4 @@
-use nvfans_common::{Request, Response, socket_path};
+use nvfans_common::{FanSpeed, Request, Response, socket_path};
 use std::error::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -56,9 +56,11 @@ impl Client {
 
     pub async fn set_fan_speed(
         &self,
-        speed: String,
+        low: i64,
+        high: i64,
+        speed: FanSpeed,
     ) -> Result<Response, Box<dyn Error + Send + Sync>> {
-        let request = Request::SetFanSpeed { speed };
+        let request = Request::SetFanSpeed { low, high, speed };
         self.send_request(request).await
     }
 

@@ -1,4 +1,4 @@
-use crate::fan_control::{FanControl, get_fan_rpm};
+use crate::fan_control::{FanControl, convert_fan_speed, get_fan_rpm};
 use nvfans_common::{Request, Response, Temperature, socket_path};
 use std::error::Error;
 use std::path::Path;
@@ -27,7 +27,7 @@ impl DaemonServer {
 
         // Check if another daemon is already listening on the socket
         if Path::new(&socket).exists() {
-            match tokio::net::UnixStream::connect(&socket) {
+            match tokio::net::UnixStream::connect(&socket).await {
                 Ok(_) => {
                     // Connected successfully, so another daemon is running
                     return Err("Another daemon is already running".into());
@@ -112,15 +112,19 @@ impl DaemonServer {
                             },
                         }
                     }
-                    Request::SetFanSpeed { speed } => {
-                        let result = fc.write_to_fan("level", &speed);
+                    // NOTE: We can probably do something with allowing the user to set the fan
+                    // speed once and ignores the config, but for now we just write to the fan file
+                    // and still follow the config.
+                    Request::SetFanSpeed { low, high, speed } => {
+                        let result = fc.write_to_fan("level", &convert_fan_speed(speed.clone()));
+                        // fc.set_current_rule(low, high, speed.clone());
                         if let Err(e) = result {
                             Response::Error {
                                 msg: format!("Failed to set fan speed: {}", e),
                             }
                         } else {
                             Response::Success {
-                                msg: format!("Fan speed set to {}", speed),
+                                msg: format!("Fan speed set to {:?}", speed),
                             }
                         }
                     }

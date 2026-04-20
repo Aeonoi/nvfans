@@ -70,7 +70,7 @@ fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
     }
 }
 
-fn convert_fan_speed(fan_speed: FanSpeed) -> String {
+pub fn convert_fan_speed(fan_speed: FanSpeed) -> String {
     match fan_speed {
         FanSpeed::Level0 => String::from("0"),
         FanSpeed::Level1 => String::from("1"),
@@ -381,6 +381,10 @@ impl FanControl {
         }
 
         Ok(())
+    }
+
+    pub fn set_current_rule(&mut self, new_rule: Temperature) {
+        self.current_rule = new_rule;
     }
 
     pub fn set_fan_level(&mut self) -> SetFanStatus {

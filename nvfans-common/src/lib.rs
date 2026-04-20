@@ -46,7 +46,7 @@ impl PartialEq<Temperature> for FanSpeed {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Request {
     GetFanSpeedStatus,
-    SetFanSpeed { speed: String }, // String in the format of a number 0-7, "full", or "auto"
+    SetFanSpeed { low: i64, high: i64, speed: FanSpeed }, // low and high are the bounds for the temperature, String in the format of a number 0-7, "full", or "auto"
     GetFanRPM,
     GetConfig,
     SetConfig { config: Vec<Temperature> },

@@ -34,15 +34,28 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let mut signals = Signals::new([SIGINT, SIGUSR1, SIGUSR2])?;
     let (signal_sender, mut signal_receiver) = channel(64);
 
-    // Spawn signal handler task
-    tokio::task::spawn_blocking(async move {
+    // Spawn signal handler task using the runtime's spawn_blocking
+    // Use spawn_blocking since signal_hook's Signals::forever() is blocking and !Send
+    rt.spawn_blocking(move || {
+        println!("[SIGNAL] Signal handler thread started");
         for sig in signals.forever() {
-            if sig == SIGINT {
-                signal_sender.send(SignalState::Interrupt).await.unwrap();
+            let signal_state = if sig == SIGINT {
+                println!("[SIGNAL] Received SIGINT");
+                SignalState::Interrupt
             } else if sig == SIGUSR1 {
-                signal_sender.send(SignalState::Sleep).await.unwrap();
+                println!("[SIGNAL] Received SIGUSR1 (Sleep)");
+                SignalState::Sleep
             } else if sig == SIGUSR2 {
-                signal_sender.send(SignalState::Resume).await.unwrap();
+                println!("[SIGNAL] Received SIGUSR2 (Resume)");
+                SignalState::Resume
+            } else {
+                println!("[SIGNAL] Received unknown signal: {}", sig);
+                continue;
+            };
+            // blocking_send is used because we're in a blocking task
+            if signal_sender.blocking_send(signal_state).is_err() {
+                println!("[SIGNAL] Failed to send signal - channel closed");
+                break;
             }
         }
     });
@@ -62,21 +75,22 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             let run_state = {
                 let mut fc = fan_control.lock().expect("Failed to lock FanControl");
 
-                // Process signals
-                while let Ok(signal) = signal_receiver.try_recv() {
-                    match signal {
-                        SignalState::Sleep => {
-                            fc.set_pending_sleep_state(true);
-                        }
-                        SignalState::Resume => {
-                            fc.set_pending_resume_state(true);
-                        }
-                        SignalState::Interrupt => {
-                            fc.reset();
-                            exit(0);
-                        }
+            // Process signals
+            while let Ok(signal) = signal_receiver.try_recv() {
+                println!("[MAIN] Received signal from channel: {:?}", signal);
+                match signal {
+                    SignalState::Sleep => {
+                        fc.set_pending_sleep_state(true);
+                    }
+                    SignalState::Resume => {
+                        fc.set_pending_resume_state(true);
+                    }
+                    SignalState::Interrupt => {
+                        fc.reset();
+                        exit(0);
                     }
                 }
+            }
 
                 if fan_control_enabled {
                     let set = fc.set_fan_level();
