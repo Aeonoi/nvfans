@@ -362,6 +362,25 @@ impl FanControl {
         // Update the in-memory config
         self.temperature_configs = new_config.clone();
 
+        // Sanity check
+        for rule in &self.temperature_configs {
+            // Do not need to check for overflow since values will be guarenteed to fit within i64
+            if rule.low < 0 || rule.high < 0 {
+                eprintln!("Temperature ranges must be non-negative");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Temperature ranges must be non-negative",
+                ));
+            }
+            if rule.low >= rule.high {
+                eprintln!("Low temperature must be less than high temperature");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Low temperature must be less than high temperature",
+                ));
+            }
+        }
+
         // Write the new config to the config file
         let mut file = File::options()
             .write(true)
