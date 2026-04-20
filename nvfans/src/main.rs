@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args().collect();
 
     if args.len() == 1 {
-        return Err("Requires an command argument.".into());
+        return Err("Requires a command argument.".into());
     }
 
     let command = args[1].clone();

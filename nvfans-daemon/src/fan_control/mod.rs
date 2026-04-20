@@ -54,7 +54,7 @@ pub fn get_fan_rpm() -> i64 {
 }
 
 fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
-    match value {
+    match value.to_lowercase().as_str() {
         "0" => FanSpeed::Level0,
         "1" => FanSpeed::Level1,
         "2" => FanSpeed::Level2,
@@ -65,7 +65,6 @@ fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
         "7" => FanSpeed::Level7,
         "full-speed" => FanSpeed::FullSpeed,
         "auto" => FanSpeed::Auto,
-        "Auto" => FanSpeed::Auto,
         _ => FanSpeed::Auto,
     }
 }

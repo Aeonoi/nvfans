@@ -144,7 +144,13 @@ impl DaemonServer {
                     },
                     Request::GetFanRPM => {
                         let rpm = get_fan_rpm();
-                        Response::FanSpeedRpm { rpm }
+                        if rpm < 0 {
+                            Response::Error {
+                                msg: "Failed to read fan RPM".to_string(),
+                            }
+                        } else {
+                            Response::FanSpeedRpm { rpm }
+                        }
                     }
                 }
             };
