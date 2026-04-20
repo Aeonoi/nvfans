@@ -1,17 +1,23 @@
 mod fan_control;
+mod server;
 mod suspend_detector;
 use signal_hook::{
     consts::{SIGINT, SIGUSR1, SIGUSR2},
     iterator::Signals,
 };
 use std::{
+    error::Error,
     process::exit,
-    sync::mpsc::channel,
-    thread::{self, sleep},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
-use crate::fan_control::{FanControl, SetFanStatus};
+use tokio::sync::mpsc::channel;
+
+use crate::{
+    fan_control::{FanControl, SetFanStatus},
+    server::DaemonServer,
+};
 
 #[derive(Debug)]
 enum SignalState {
@@ -20,68 +26,117 @@ enum SignalState {
     Resume,
 }
 
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let mut fan_control = FanControl::new();
+pub fn run() -> Result<(), Box<dyn Error>> {
+    let fan_control = Arc::new(Mutex::new(FanControl::new()));
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
     let mut signals = Signals::new([SIGINT, SIGUSR1, SIGUSR2])?;
-    let (sender, receiver) = channel();
+    let (signal_sender, mut signal_receiver) = channel(64);
 
-    thread::spawn(move || {
+    // Spawn signal handler task using the runtime's spawn_blocking
+    // Use spawn_blocking since signal_hook's Signals::forever() is blocking and !Send
+    rt.spawn_blocking(move || {
+        println!("[SIGNAL] Signal handler thread started");
         for sig in signals.forever() {
-            if sig == SIGINT {
-                sender.send(SignalState::Interrupt).unwrap();
+            let signal_state = if sig == SIGINT {
+                println!("[SIGNAL] Received SIGINT");
+                SignalState::Interrupt
             } else if sig == SIGUSR1 {
-                sender.send(SignalState::Sleep).unwrap();
+                println!("[SIGNAL] Received SIGUSR1 (Sleep)");
+                SignalState::Sleep
             } else if sig == SIGUSR2 {
-                sender.send(SignalState::Resume).unwrap();
+                println!("[SIGNAL] Received SIGUSR2 (Resume)");
+                SignalState::Resume
+            } else {
+                println!("[SIGNAL] Received unknown signal: {}", sig);
+                continue;
+            };
+            // blocking_send is used because we're in a blocking task
+            if signal_sender.blocking_send(signal_state).is_err() {
+                println!("[SIGNAL] Failed to send signal - channel closed");
+                break;
             }
         }
     });
 
-    let mut fan_control_enabled = true;
-    while fan_control.get_run_state() {
-        let response = receiver.try_recv();
-        if response.is_ok() {
-            match response.unwrap() {
-                SignalState::Sleep => {
-                    fan_control.set_pending_sleep_state(true);
-                }
-                SignalState::Resume => {
-                    fan_control.set_pending_resume_state(true);
-                }
-                SignalState::Interrupt => {
-                    fan_control.reset();
-                    exit(0);
-                }
-            }
+    // Spawn daemon server task
+    let fan_control_server = Arc::clone(&fan_control);
+    rt.spawn(async move {
+        let daemon_server = DaemonServer::new(fan_control_server);
+        if let Err(err) = daemon_server.make_connection().await {
+            eprintln!("[ERROR] Failed to start daemon server: {err}");
+            exit(1);
         }
-        if fan_control_enabled {
-            let set = fan_control.set_fan_level();
-            if set != SetFanStatus::FanLevelNotSet {
-                fan_control.maybe_ping_watchdog();
-            }
-        }
-        if fan_control.get_run_state() {
-            sleep(Duration::from_secs(1));
-            fan_control.unset_first_tick();
-        }
-        if fan_control.get_pending_sleep_state() {
-            fan_control.set_pending_sleep_state(false);
-            println!("[FAN] Fan control disabled for sleep. Turning off fans.");
+    });
 
-            if fan_control.write_to_fan("level", "0").is_ok() {
-                fan_control.write_watchdog_timeout(0);
+    let mut fan_control_enabled = true;
+
+    // Main loop
+    rt.block_on(async {
+        loop {
+            let run_state = {
+                let mut fc = fan_control.lock().expect("Failed to lock FanControl");
+
+            // Process signals
+            while let Ok(signal) = signal_receiver.try_recv() {
+                println!("[MAIN] Received signal from channel: {:?}", signal);
+                match signal {
+                    SignalState::Sleep => {
+                        fc.set_pending_sleep_state(true);
+                    }
+                    SignalState::Resume => {
+                        fc.set_pending_resume_state(true);
+                    }
+                    SignalState::Interrupt => {
+                        fc.reset();
+                        exit(0);
+                    }
+                }
             }
-            fan_control_enabled = false;
+
+                if fan_control_enabled {
+                    let set = fc.set_fan_level();
+                    if set != SetFanStatus::FanLevelNotSet {
+                        fc.maybe_ping_watchdog();
+                    }
+                }
+
+                if fc.get_pending_sleep_state() {
+                    fc.set_pending_sleep_state(false);
+                    println!("[FAN] Fan control disabled for sleep. Turning off fans.");
+
+                    if fc.write_to_fan("level", "0").is_ok() {
+                        fc.write_watchdog_timeout(0);
+                    }
+                    fan_control_enabled = false;
+                }
+
+                if fc.get_pending_resume_state() {
+                    fc.set_pending_resume_state(false);
+                    println!("[FAN] Fan control enabled for resume. Restoring fan control.");
+                    fan_control_enabled = true;
+                    fc.set_fan_to_previous();
+                    fc.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
+                }
+
+                let run = fc.get_run_state();
+                if run {
+                    fc.unset_first_tick();
+                }
+                run
+            };
+
+            if !run_state {
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        if fan_control.get_pending_resume_state() {
-            fan_control.set_pending_resume_state(false);
-            println!("[FAN] Fan control enabled for resume. Restoring fan control.");
-            fan_control_enabled = true;
-            fan_control.set_fan_to_previous();
-            fan_control.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
-        }
-    }
-    fan_control.reset();
+
+        let mut fc = fan_control.lock().expect("Failed to lock FanControl");
+        fc.reset();
+    });
+
     Ok(())
 }

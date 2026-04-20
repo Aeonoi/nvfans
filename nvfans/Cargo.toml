@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 nvfans-daemon = { path = "../nvfans-daemon", default-features = false }
+nvfans-client = { path = "../nvfans-client", default-features = false }

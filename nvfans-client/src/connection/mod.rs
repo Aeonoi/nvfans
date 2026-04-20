@@ -1,0 +1,90 @@
+use nvfans_common::{FanSpeed, Request, Response, socket_path};
+use std::error::Error;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::UnixStream,
+    sync::Mutex,
+};
+
+/// A client for the nvfans daemon.
+///
+/// This client maintains a persistent connection to the daemon's Unix socket.
+pub struct Client {
+    // We use a Mutex to allow for safe concurrent access to the stream
+    // from multiple async tasks if needed.
+    stream: Mutex<UnixStream>,
+}
+
+impl Client {
+    /// Connects to the nvfans daemon socket.
+    pub async fn new() -> Result<Self, Box<dyn Error + Send + Sync>> {
+        let socket = socket_path();
+        let stream = UnixStream::connect(&socket)
+            .await
+            .map_err(|e| format!("Failed to connect to {}: {}", socket.display(), e))?;
+        Ok(Self {
+            stream: Mutex::new(stream),
+        })
+    }
+
+    /// Sends a request to the daemon and awaits a response.
+    async fn send_request(
+        &self,
+        request: Request,
+    ) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let mut locked_stream = self.stream.lock().await;
+
+        // Serialize the request and send it
+        let request_json = serde_json::to_string(&request)? + "\n";
+        locked_stream.write_all(request_json.as_bytes()).await?;
+
+        // Wait for the response
+        let (reader, _) = locked_stream.split();
+        let mut reader = BufReader::new(reader);
+        let mut line = String::new();
+        reader.read_line(&mut line).await?;
+
+        // Deserialize and return the response
+        let response = serde_json::from_str(&line)?;
+        Ok(response)
+    }
+
+    pub async fn get_status(&self) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::GetFanSpeedStatus;
+        self.send_request(request).await
+    }
+
+    pub async fn set_fan_speed(
+        &self,
+        low: i64,
+        high: i64,
+        speed: FanSpeed,
+    ) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::SetFanSpeed { low, high, speed };
+        self.send_request(request).await
+    }
+
+    pub async fn get_config(&self) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::GetConfig;
+        self.send_request(request).await
+    }
+
+    pub async fn set_config(
+        &self,
+        config: Vec<nvfans_common::Temperature>,
+    ) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::SetConfig { config };
+        self.send_request(request).await
+    }
+
+    pub async fn get_fan_rpm(&self) -> Result<Response, Box<dyn Error + Send + Sync>> {
+        let request = Request::GetFanRPM;
+        self.send_request(request).await
+    }
+
+    pub async fn close(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut locked_stream = self.stream.lock().await;
+        locked_stream.shutdown().await?;
+        Ok(())
+    }
+}

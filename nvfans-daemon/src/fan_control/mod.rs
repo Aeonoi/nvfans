@@ -1,5 +1,6 @@
 use crate::suspend_detector::SuspendDetector;
 use glob::glob;
+use nvfans_common::{FanSpeed, Temperature};
 use std::{
     collections::VecDeque,
     fs::{File, read_to_string},
@@ -25,8 +26,35 @@ const fn millic_to_c(temp: i64) -> i64 {
     temp / 1000
 }
 
+pub fn get_fan_rpm() -> i64 {
+    let f = File::open(FAN_CONTROL_FILE);
+    if f.is_err() {
+        return TEMP_INVALID;
+    }
+    let mut data = vec![];
+
+    if f.is_ok() {
+        let _ = f.unwrap().read_to_end(&mut data);
+    }
+
+    let content = String::from_utf8_lossy(&data);
+
+    for line in content.lines() {
+        if line.contains("speed") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                if let Ok(rpm) = parts[1].parse::<i64>() {
+                    return rpm;
+                }
+            }
+        }
+    }
+
+    TEMP_INVALID
+}
+
 fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
-    match value {
+    match value.to_lowercase().as_str() {
         "0" => FanSpeed::Level0,
         "1" => FanSpeed::Level1,
         "2" => FanSpeed::Level2,
@@ -37,12 +65,11 @@ fn convert_number_to_fan_speed(value: &str) -> FanSpeed {
         "7" => FanSpeed::Level7,
         "full-speed" => FanSpeed::FullSpeed,
         "auto" => FanSpeed::Auto,
-        "Auto" => FanSpeed::Auto,
         _ => FanSpeed::Auto,
     }
 }
 
-fn convert_fan_speed(fan_speed: FanSpeed) -> String {
+pub fn convert_fan_speed(fan_speed: FanSpeed) -> String {
     match fan_speed {
         FanSpeed::Level0 => String::from("0"),
         FanSpeed::Level1 => String::from("1"),
@@ -54,39 +81,6 @@ fn convert_fan_speed(fan_speed: FanSpeed) -> String {
         FanSpeed::Level7 => String::from("7"),
         FanSpeed::FullSpeed => String::from("full-speed"),
         FanSpeed::Auto => String::from("auto"),
-    }
-}
-
-#[derive(Clone, Debug)]
-struct Temperature {
-    low: i64,
-    high: i64,
-    speed: FanSpeed,
-}
-
-impl PartialEq for Temperature {
-    fn eq(&self, other: &Self) -> bool {
-        self.speed == other.speed
-    }
-}
-
-#[derive(PartialEq, Copy, Clone, Debug)]
-enum FanSpeed {
-    Level0,
-    Level1,
-    Level2,
-    Level3,
-    Level4,
-    Level5,
-    Level6,
-    Level7,
-    FullSpeed,
-    Auto,
-}
-
-impl PartialEq<Temperature> for FanSpeed {
-    fn eq(&self, other: &Temperature) -> bool {
-        *self == other.speed
     }
 }
 
@@ -354,6 +348,61 @@ impl FanControl {
         }
 
         millic_to_c(max_temp)
+    }
+
+    pub fn get_current_rule(&mut self) -> Temperature {
+        self.current_rule.clone()
+    }
+
+    pub fn get_config(&mut self) -> Vec<Temperature> {
+        self.temperature_configs.clone()
+    }
+
+    pub fn set_config(&mut self, new_config: Vec<Temperature>) -> std::io::Result<()> {
+        // Update the in-memory config
+        self.temperature_configs = new_config.clone();
+
+        // Sanity check
+        for rule in &self.temperature_configs {
+            // Do not need to check for overflow since values will be guarenteed to fit within i64
+            if rule.low < 0 || rule.high < 0 {
+                eprintln!("Temperature ranges must be non-negative");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Temperature ranges must be non-negative",
+                ));
+            }
+            if rule.low >= rule.high {
+                eprintln!("Low temperature must be less than high temperature");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Low temperature must be less than high temperature",
+                ));
+            }
+        }
+
+        // Write the new config to the config file
+        let mut file = File::options()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(CONFIG_FILE)?;
+
+        for rule in &new_config {
+            let line = format!(
+                "{},{},{}",
+                rule.low,
+                rule.high,
+                convert_fan_speed(rule.speed)
+            );
+            writeln!(file, "{}", line)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn set_current_rule(&mut self, new_rule: Temperature) {
+        self.current_rule = new_rule;
     }
 
     pub fn set_fan_level(&mut self) -> SetFanStatus {
