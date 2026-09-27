@@ -18,6 +18,11 @@ const TICK_HYSTERESIS: i64 = 4;
 const FAST_TICK_HYSTERESIS: i64 = 2; // Speeds up the time to change fan speeds
 const TEMP_OFFSET: i64 = 2; // Offsets the temperature when determining whether to switch fan speeds
 const TEMP_HISTORY_SIZE: usize = 30; // Arbitrary history size
+pub const DEFAULT_AUTO_TEMPERATURE_RULE: Temperature = Temperature {
+    low: 0,
+    high: 60,
+    speed: FanSpeed::Auto,
+};
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;

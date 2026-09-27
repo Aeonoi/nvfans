@@ -15,8 +15,7 @@ use std::{
 use tokio::sync::mpsc::channel;
 
 use crate::{
-    fan_control::{FanControl, SetFanStatus},
-    server::DaemonServer,
+    fan_control::{DEFAULT_AUTO_TEMPERATURE_RULE, FanControl, SetFanStatus}, server::DaemonServer,
 };
 
 #[derive(Debug)]
@@ -125,9 +124,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                         } else {
                             println!("[FAN] Temperature rule has changed after resume ({}C). Falling back to auto.", max_temp);
                             let _ = fc.write_to_fan("level", "auto");
+                            fc.set_current_rule(DEFAULT_AUTO_TEMPERATURE_RULE);
                         }
                     } else {
                         let _ = fc.write_to_fan("level", "auto");
+                        fc.set_current_rule(DEFAULT_AUTO_TEMPERATURE_RULE);
                     }
 
                     fc.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
