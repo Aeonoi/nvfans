@@ -22,7 +22,6 @@ pub enum FanSpeed {
     Level7,
     FullSpeed,
     Auto,
-    Invalid
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -12,7 +12,7 @@ use std::{
 
 const TEMP_FILES_GLOB: &str = "/sys/class/hwmon/hwmon*/temp*_input"; // Gets the temperatures
 const FAN_CONTROL_FILE: &str = "/proc/acpi/ibm/fan"; // Controls the fan speed
-pub const TEMP_INVALID: i64 = i64::MIN;
+const TEMP_INVALID: i64 = i64::MIN;
 const CONFIG_FILE: &str = "/etc/nvfans.conf";
 const TICK_HYSTERESIS: i64 = 4;
 const FAST_TICK_HYSTERESIS: i64 = 2; // Speeds up the time to change fan speeds
@@ -81,7 +81,6 @@ pub fn convert_fan_speed(fan_speed: FanSpeed) -> String {
         FanSpeed::Level7 => String::from("7"),
         FanSpeed::FullSpeed => String::from("full-speed"),
         FanSpeed::Auto => String::from("auto"),
-        FanSpeed::Invalid => String::from("invalid"),
     }
 }
 
