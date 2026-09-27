@@ -15,8 +15,7 @@ use std::{
 use tokio::sync::mpsc::channel;
 
 use crate::{
-    fan_control::{FanControl, SetFanStatus},
-    server::DaemonServer,
+    fan_control::{DEFAULT_AUTO_TEMPERATURE_RULE, FanControl, SetFanStatus}, server::DaemonServer,
 };
 
 #[derive(Debug)]
@@ -78,22 +77,22 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             let run_state = {
                 let mut fc = fan_control.lock().expect("Failed to lock FanControl");
 
-            // Process signals
-            while let Ok(signal) = signal_receiver.try_recv() {
-                println!("[MAIN] Received signal from channel: {:?}", signal);
-                match signal {
-                    SignalState::Sleep => {
-                        fc.set_pending_sleep_state(true);
-                    }
-                    SignalState::Resume => {
-                        fc.set_pending_resume_state(true);
-                    }
-                    SignalState::Interrupt => {
-                        fc.reset();
-                        exit(0);
+                // Process signals
+                while let Ok(signal) = signal_receiver.try_recv() {
+                    println!("[MAIN] Received signal from channel: {:?}", signal);
+                    match signal {
+                        SignalState::Sleep => {
+                            fc.set_pending_sleep_state(true);
+                        }
+                        SignalState::Resume => {
+                            fc.set_pending_resume_state(true);
+                        }
+                        SignalState::Interrupt => {
+                            fc.reset();
+                            exit(0);
+                        }
                     }
                 }
-            }
 
                 if fan_control_enabled {
                     let set = fc.set_fan_level();
@@ -116,7 +115,22 @@ pub fn run() -> Result<(), Box<dyn Error>> {
                     fc.set_pending_resume_state(false);
                     println!("[FAN] Fan control enabled for resume. Restoring fan control.");
                     fan_control_enabled = true;
-                    fc.set_fan_to_previous();
+
+                    let max_temp = fc.get_max_temp();
+                    let current_rule = fc.get_current_rule();
+                    if let Some(new_rule) = fc.get_current_temperature_rule(max_temp) {
+                        if new_rule == current_rule {
+                            fc.set_fan_to_previous();
+                        } else {
+                            println!("[FAN] Temperature rule has changed after resume ({}C). Falling back to auto.", max_temp);
+                            let _ = fc.write_to_fan("level", "auto");
+                            fc.set_current_rule(DEFAULT_AUTO_TEMPERATURE_RULE);
+                        }
+                    } else {
+                        let _ = fc.write_to_fan("level", "auto");
+                        fc.set_current_rule(DEFAULT_AUTO_TEMPERATURE_RULE);
+                    }
+
                     fc.write_watchdog_timeout(fan_control::DEFAULT_WATCHDOG_SECS);
                 }
 

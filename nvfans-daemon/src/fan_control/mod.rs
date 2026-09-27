@@ -18,6 +18,11 @@ const TICK_HYSTERESIS: i64 = 4;
 const FAST_TICK_HYSTERESIS: i64 = 2; // Speeds up the time to change fan speeds
 const TEMP_OFFSET: i64 = 2; // Offsets the temperature when determining whether to switch fan speeds
 const TEMP_HISTORY_SIZE: usize = 30; // Arbitrary history size
+pub const DEFAULT_AUTO_TEMPERATURE_RULE: Temperature = Temperature {
+    low: 0,
+    high: 60,
+    speed: FanSpeed::Auto,
+};
 
 pub const DEFAULT_WATCHDOG_SECS: i64 = 120;
 pub const WATCHDOG_GRACE_PERIOD_SECS: i64 = 2;
@@ -350,8 +355,21 @@ impl FanControl {
         millic_to_c(max_temp)
     }
 
-    pub fn get_current_rule(&mut self) -> Temperature {
+    pub fn get_current_rule(&self) -> Temperature {
         self.current_rule.clone()
+    }
+
+    pub fn get_current_temperature_rule(&self, temp: i64) -> Option<Temperature> {
+        for rule in &self.temperature_configs {
+            let mut stuck_penalty = 0;
+            if *rule == self.current_rule {
+                stuck_penalty = 3;
+            }
+            if temp <= rule.high - stuck_penalty && temp >= rule.low {
+                return Some(rule.clone());
+            }
+        }
+        None
     }
 
     pub fn get_config(&mut self) -> Vec<Temperature> {
@@ -408,8 +426,6 @@ impl FanControl {
     pub fn set_fan_level(&mut self) -> SetFanStatus {
         let max_temp = self.get_max_temp();
 
-        let mut stuck_penalty = 0;
-
         if self.tick > 0 {
             self.tick -= 1;
         }
@@ -437,46 +453,42 @@ impl FanControl {
         // correct temperature to compare with.
         let avg_temp = (self.temp_history.iter().sum::<i64>() / count) - TEMP_OFFSET;
 
-        // TODO: For default configs, we want to raise the fan speed level when necessary, i.e.
-        // when we have been stuck on the same fan level for a while.
-        for rule in self.temperature_configs.clone() {
-            if rule == self.current_rule {
-                if self.tick > 0 {
+        // Check if we are in a tick period for the current rule
+        if self.tick > 0 {
+            if let Some(rule) = self.get_current_temperature_rule(avg_temp) {
+                if rule == self.current_rule {
                     return SetFanStatus::FanLevelNotSet;
                 }
-                stuck_penalty = 3;
             }
-            if rule.high - stuck_penalty >= avg_temp && rule.low <= avg_temp {
-                if self.current_rule != rule {
-                    let mut value = convert_fan_speed(rule.speed);
-                    self.tick = TICK_HYSTERESIS;
+        }
 
-                    // Turn to fan speed 6 and wait to see if we really want to turn to fan speed
-                    // level 7 to remove any unnecessary drastic fan spin up
-                    // Some newer devices and some higher end ThinkPads can have a difference of
-                    // >2000 RPM change from level 6 -> level 7
-                    if rule.speed == FanSpeed::Level7 && self.current_rule.speed != FanSpeed::Level6
-                    {
-                        value = convert_fan_speed(FanSpeed::Level6);
-                        self.current_rule = Temperature {
-                            low: rule.low,
-                            high: rule.high,
-                            speed: FanSpeed::Level6,
-                        };
-                        self.tick = FAST_TICK_HYSTERESIS;
-                    }
+        if let Some(rule) = self.get_current_temperature_rule(avg_temp) {
+            if self.current_rule != rule {
+                let mut value = convert_fan_speed(rule.speed);
+                self.tick = TICK_HYSTERESIS;
 
-                    self.current_rule = rule.clone();
-
-                    let status = self.write_to_fan("level", &value);
-                    if status.is_err() {
-                        return SetFanStatus::FanLevelError;
-                    }
-                    println!("[FAN] Temperature now {}C, fan set to {}", max_temp, value);
-                    return SetFanStatus::FanLevelSet;
+                // Turn to fan speed 6 and wait to see if we really want to turn to fan speed
+                // level 7 to remove any unnecessary drastic fan spin up
+                if rule.speed == FanSpeed::Level7 && self.current_rule.speed != FanSpeed::Level6 {
+                    value = convert_fan_speed(FanSpeed::Level6);
+                    self.current_rule = Temperature {
+                        low: rule.low,
+                        high: rule.high,
+                        speed: FanSpeed::Level6,
+                    };
+                    self.tick = FAST_TICK_HYSTERESIS;
                 } else {
-                    return SetFanStatus::FanLevelNotSet;
+                    self.current_rule = rule.clone();
                 }
+
+                let status = self.write_to_fan("level", &value);
+                if status.is_err() {
+                    return SetFanStatus::FanLevelError;
+                }
+                println!("[FAN] Temperature now {}C, fan set to {}", max_temp, value);
+                return SetFanStatus::FanLevelSet;
+            } else {
+                return SetFanStatus::FanLevelNotSet;
             }
         }
 
@@ -484,6 +496,7 @@ impl FanControl {
     }
 
     pub fn set_fan_to_previous(&mut self) {
+        println!("[FAN] Setting fan level to previous level {}", convert_fan_speed(self.current_rule.speed));
         let status =
             self.write_to_fan("level", convert_fan_speed(self.current_rule.speed).as_str());
         if status.is_err() {
